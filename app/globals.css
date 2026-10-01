@@ -261,6 +261,7 @@ a { color: inherit; text-decoration: none; }
   box-shadow:0 26px 80px rgba(0,0,0,.48);
 }
 .emotePickerHeader {
+  flex:0 0 auto;
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -292,6 +293,7 @@ a { color: inherit; text-decoration: none; }
 .emotePickerHeader > button:hover { color:#fff; background:#242a36; }
 
 .emotePickerSearch {
+  flex:0 0 auto;
   margin:10px 12px 8px;
   width:calc(100% - 24px);
   border:1px solid #303746;
@@ -309,10 +311,14 @@ a { color: inherit; text-decoration: none; }
 .emotePickerSearch::placeholder { color:#626a78; }
 
 .emoteProviderTabs {
+  flex:0 0 auto;
   display:flex;
+  align-items:center;
   gap:6px;
+  min-height:35px;
   padding:0 12px 9px;
   overflow-x:auto;
+  overflow-y:hidden;
   scrollbar-width:thin;
 }
 .emoteProviderTabs button {
@@ -334,6 +340,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .emoteScopeNotice {
+  flex:0 0 auto;
   display:block;
   margin:0 12px 8px;
   padding:8px 10px;
@@ -347,6 +354,8 @@ a { color: inherit; text-decoration: none; }
 .emoteScopeNotice:hover { border-color:#6a5c2d; }
 
 .emotePickerContent {
+  flex:1 1 auto;
+  min-height:0;
   overflow:auto;
   padding:2px 12px 12px;
   scrollbar-width:thin;
