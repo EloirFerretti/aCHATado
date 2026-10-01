@@ -527,6 +527,31 @@ export async function getYouTubeLiveEmotes(
   return emotes;
 }
 
+function inferYouTubePickerCategory(
+  emote: YouTubeEmote,
+): YouTubeEmoteCategory {
+  if (emote.category) return emote.category;
+
+  const id = String(emote.id || "");
+  const shortcut = String(emote.shortcut || "").toLowerCase();
+
+  // O conjunto global oficial do YouTube usa o categoryId abaixo no picker
+  // web. O payload pode omitir categoryType, mas preservar esse prefixo.
+  if (id.startsWith("UCkszU2WH9gy1mb0dV-11UJg/")) return "official";
+
+  // Fallback defensivo para emotes globais atuais/legados do YouTube quando a
+  // página anônima traz apenas os objetos emoji e não o emojiPickerRenderer.
+  if (
+    /^:(?:face|hand|body|eyes|person|cat|goat|trophy|text|glasses|heart|party|people|object)-/.test(shortcut) ||
+    /^:(?:yt|buffering|oops|chillwcat|chillwdog|dothefive|elbowbump|elbowcough|goodvibes|hydrate):$/.test(shortcut)
+  ) {
+    return "official";
+  }
+
+  if (!emote.custom) return "official";
+  return "channel";
+}
+
 export async function getYouTubePickerEmotes(
   videoId: string,
   forceRefresh = false,
@@ -534,11 +559,27 @@ export async function getYouTubePickerEmotes(
   const emotes = await getYouTubeLiveEmotes(videoId, forceRefresh);
   const unique = new Map<string, YouTubeEmote>();
 
-  for (const emote of Object.values(emotes)) {
-    if (!emote.category) continue;
-    const key = emote.id || emote.url;
-    if (!unique.has(key)) unique.set(key, emote);
+  for (const source of Object.values(emotes)) {
+    const key = source.id || source.url;
+    if (unique.has(key)) continue;
+
+    const emote = { ...source };
+    emote.category = inferYouTubePickerCategory(emote);
+    emote.custom = emote.category === "channel";
+    unique.set(key, emote);
   }
+
+  console.info("[youtube-emotes] picker", {
+    videoId: videoId.slice(0, 6),
+    total: unique.size,
+    official: [...unique.values()].filter((emote) => emote.category === "official").length,
+    channel: [...unique.values()].filter((emote) => emote.category === "channel").length,
+    sample: [...unique.values()].slice(0, 5).map((emote) => ({
+      id: emote.id?.slice(0, 24),
+      shortcut: emote.shortcut,
+      category: emote.category,
+    })),
+  });
 
   return [...unique.values()];
 }
