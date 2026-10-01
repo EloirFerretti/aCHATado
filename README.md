@@ -1,4 +1,4 @@
-# Unified Stream Chat
+# aCHATado — Unified Stream Chat
 
 Web app para reunir mensagens de **Twitch, Kick e YouTube** em um único feed e permitir que cada viewer escolha por qual plataforma deseja enviar sua mensagem.
 
@@ -15,6 +15,8 @@ Web app para reunir mensagens de **Twitch, Kick e YouTube** em um único feed e 
 - Persistência de mensagens em Supabase via REST somente pelo backend.
 - Modo demonstração automático quando o banco ainda não foi configurado.
 - Layout responsivo para desktop e celular.
+- Configuração pronta para deploy no Render por `render.yaml`.
+- Endpoint de health check em `/api/health`.
 
 ## 1. Banco de dados
 
@@ -31,15 +33,49 @@ A service role fica somente no servidor. As tabelas usam RLS e não possuem poli
 
 ## 2. Variáveis de ambiente
 
-Copie `.env.example` para `.env.local` e preencha as credenciais.
+Use `.env.example` como referência.
 
-Também crie um segredo longo para:
+Crie um segredo longo para:
 
 ```env
 SESSION_SECRET=uma-chave-longa-com-pelo-menos-24-caracteres
 ```
 
-Em produção, defina `APP_URL=https://seu-dominio.com`.
+Em produção, `APP_URL` deve ser a URL pública exata do Render, sem barra no final:
+
+```env
+APP_URL=https://SEU-SERVICO.onrender.com
+```
+
+Variáveis usadas pela aplicação:
+
+```env
+APP_URL=
+SESSION_SECRET=
+
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+TWITCH_BROADCASTER_ID=
+TWITCH_EVENTSUB_SECRET=
+
+KICK_CLIENT_ID=
+KICK_CLIENT_SECRET=
+KICK_BROADCASTER_ID=
+KICK_PUBLIC_KEY=
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+YOUTUBE_API_KEY=
+YOUTUBE_VIDEO_ID=
+YOUTUBE_LIVE_CHAT_ID=
+```
+
+`KICK_PUBLIC_KEY` é opcional. Se ficar vazia, a aplicação busca a chave pública oficial da Kick automaticamente.
+
+Para o YouTube, use `YOUTUBE_VIDEO_ID` **ou** `YOUTUBE_LIVE_CHAT_ID`.
 
 ## 3. Twitch
 
@@ -57,7 +93,7 @@ Webhook do EventSub:
 https://SEU-DOMINIO/api/webhooks/twitch
 ```
 
-O envio feito pelo viewer usa `user:write:chat`. Para receber `channel.chat.message` via **webhook**, a configuração de chatbot em nuvem da Twitch exige uma identidade de bot autorizada com `user:read:chat` + `user:bot` e autorização `channel:bot` concedida pelo broadcaster (ou o bot como moderador, conforme as regras atuais). A criação da subscription webhook usa um **App Access Token** do mesmo Client ID.
+O envio feito pelo viewer usa `user:write:chat`.
 
 Defina:
 
@@ -84,7 +120,9 @@ O OAuth usa PKCE automaticamente e solicita:
 user:read chat:write
 ```
 
-Para receber o chat, o streamer/broadcaster precisa autorizar sua aplicação com `events:subscribe` e você deve criar uma assinatura para `chat.message.sent`. Configure no Kick Dev o webhook:
+Para receber o chat, o streamer/broadcaster precisa autorizar sua aplicação com `events:subscribe` e você deve criar uma assinatura para `chat.message.sent`.
+
+Webhook:
 
 ```text
 https://SEU-DOMINIO/api/webhooks/kick
@@ -97,8 +135,6 @@ KICK_CLIENT_ID=
 KICK_CLIENT_SECRET=
 KICK_BROADCASTER_ID=
 ```
-
-O webhook valida `Kick-Event-Signature` usando a chave pública oficial obtida em `GET /public/v1/public-key`.
 
 ## 5. YouTube
 
@@ -121,7 +157,7 @@ YOUTUBE_VIDEO_ID=
 
 Se você já souber o `liveChatId`, pode usar `YOUTUBE_LIVE_CHAT_ID` no lugar de `YOUTUBE_VIDEO_ID`.
 
-A rota `/api/youtube/poll` respeita `pollingIntervalMillis` devolvido pela API e persiste o `nextPageToken` no banco para não começar do zero em toda chamada.
+A rota `/api/youtube/poll` respeita `pollingIntervalMillis` devolvido pela API e persiste o `nextPageToken` no banco.
 
 ## 6. Rodar localmente
 
@@ -132,19 +168,93 @@ npm run dev
 
 Abra `http://localhost:3000`.
 
-## 7. Deploy na Vercel
+## 7. Deploy no Render
 
-Importe o repositório na Vercel e copie todas as variáveis do `.env.local` para **Settings → Environment Variables**. Depois atualize `APP_URL` com o domínio de produção e cadastre os redirects/webhooks de produção nos painéis Twitch, Kick e Google.
+O repositório contém um `render.yaml` pronto para criar um **Web Service Node**.
+
+### Opção recomendada — Blueprint
+
+1. Entre no Render.
+2. Clique em **New → Blueprint**.
+3. Conecte sua conta do GitHub, se ainda não estiver conectada.
+4. Selecione o repositório `EloirFerretti/aCHATado`.
+5. O Render detectará o `render.yaml`.
+6. Confira o serviço `achatado` e aplique o Blueprint.
+7. Aguarde o primeiro build.
+8. Abra o serviço criado e copie a URL `https://...onrender.com`.
+9. Em **Environment**, adicione as variáveis de `.env.example`.
+10. Defina `APP_URL` com a URL exata copiada no passo anterior.
+11. Faça um novo deploy depois de salvar as variáveis.
+
+O Blueprint atual usa:
+
+```text
+Runtime: Node
+Region: Virginia
+Plan: Free
+Build Command: npm install && npm run build
+Start Command: npm start
+Health Check: /api/health
+Auto Deploy: a cada commit
+Node: 24.21.0
+```
+
+### Deploy manual
+
+Se preferir criar o serviço sem Blueprint:
+
+- **New → Web Service**
+- Repositório: `EloirFerretti/aCHATado`
+- Branch: `main`
+- Language/Runtime: `Node`
+- Build Command: `npm install && npm run build`
+- Start Command: `npm start`
+- Health Check Path: `/api/health`
+
+Depois adicione as variáveis em **Environment**.
+
+### Depois do primeiro deploy
+
+Com o domínio definitivo do Render, atualize os callbacks:
+
+```text
+Twitch OAuth:
+https://SEU-DOMINIO/api/auth/twitch/callback
+
+Twitch EventSub:
+https://SEU-DOMINIO/api/webhooks/twitch
+
+Kick OAuth:
+https://SEU-DOMINIO/api/auth/kick/callback
+
+Kick webhook:
+https://SEU-DOMINIO/api/webhooks/kick
+
+Google/YouTube OAuth:
+https://SEU-DOMINIO/api/auth/youtube/callback
+```
+
+Teste também:
+
+```text
+https://SEU-DOMINIO/api/health
+```
+
+O retorno deve conter `"ok": true`.
+
+### Atenção ao plano Free
+
+O plano gratuito do Render é adequado para testes, mas pode colocar o serviço em suspensão após um período sem tráfego. Para um agregador de chat que precisa receber webhooks mesmo quando nenhum viewer está com a página aberta, um serviço sempre ativo é mais confiável.
 
 ## Fluxo do viewer
 
 1. O viewer abre o chat unificado.
 2. Pode ler Twitch, Kick e YouTube no mesmo feed.
 3. Escolhe Twitch, Kick ou YouTube em **Enviar pela**.
-4. Se a conta ainda não estiver conectada, faz OAuth uma única vez.
+4. Se a conta ainda não estiver conectada, faz OAuth.
 5. Escreve a mensagem.
 6. O backend envia usando o token daquele viewer somente para a plataforma selecionada.
-7. A mensagem reaparece no feed quando a própria plataforma a entrega pelo EventSub/webhook/API, evitando duplicação artificial.
+7. A mensagem reaparece no feed quando a própria plataforma a entrega pelo EventSub/webhook/API.
 
 ## Observação importante
 
