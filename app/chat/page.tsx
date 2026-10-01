@@ -299,17 +299,32 @@ export default function Home() {
     }
 
     let cancelled = false;
-    fetch(`/api/youtube/emotes?videoId=${encodeURIComponent(videoId)}`, { cache: "no-store" })
-      .then(async (res) => res.ok ? res.json() : Promise.reject(new Error("Falha ao carregar emotes do YouTube")))
-      .then((json) => {
-        if (!cancelled) setYoutubeEmotes(json.emotes || {});
-      })
-      .catch(() => {
-        if (!cancelled) setYoutubeEmotes({});
-      });
+    let refreshTimer: number | undefined;
+
+    const load = (force = false) => {
+      const params = new URLSearchParams({ videoId });
+      if (force) params.set("refresh", "1");
+
+      fetch(`/api/youtube/emotes?${params.toString()}`, { cache: "no-store" })
+        .then(async (res) =>
+          res.ok
+            ? res.json()
+            : Promise.reject(new Error("Falha ao carregar emotes do YouTube")),
+        )
+        .then((json) => {
+          if (!cancelled) setYoutubeEmotes(json.emotes || {});
+        })
+        .catch(() => {
+          // Mantém o catálogo anterior em falhas transitórias.
+        });
+    };
+
+    load(false);
+    refreshTimer = window.setInterval(() => load(true), 5 * 60_000);
 
     return () => {
       cancelled = true;
+      if (refreshTimer) clearInterval(refreshTimer);
     };
   }, [ready, channels.youtube?.videoId]);
 
@@ -654,6 +669,26 @@ export default function Home() {
     });
   }, [pickerEmotes, pickerProvider, pickerSearch]);
 
+  const youtubeEmotePattern = useMemo(() => {
+    const codes = Object.keys(youtubeEmotes)
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    if (!codes.length) return null;
+
+    const escaped = codes.map((code) =>
+      code.replace(/[.*+?^\${}()|[\]\\]/g, "\\  const filteredPickerEmotes = useMemo(() => {
+    const query = pickerSearch.trim().toLowerCase();
+    return pickerEmotes.filter((emote) => {
+      if (pickerProvider !== "all" && emote.provider !== pickerProvider) return false;
+      if (query && !emote.code.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [pickerEmotes, pickerProvider, pickerSearch]);
+"),
+    );
+    return new RegExp(`(${escaped.join("|")})`, "g");
+  }, [youtubeEmotes]);
+
   function insertPickerEmote(emote: PickerEmote) {
     const node = textareaRef.current;
     const start = node?.selectionStart ?? text.length;
@@ -777,9 +812,9 @@ export default function Home() {
   }
 
   function renderYouTubeMessage(message: Message) {
-    if (!Object.keys(youtubeEmotes).length) return message.message;
+    if (!youtubeEmotePattern) return message.message;
 
-    return message.message.split(/(:[^:\s]+:)/g).map((part, index) => {
+    return message.message.split(youtubeEmotePattern).map((part, index) => {
       const emote = youtubeEmotes[part];
       if (!emote) return part;
 
@@ -787,8 +822,8 @@ export default function Home() {
         <img
           className="chatEmote nativeEmote youtubeNativeEmote"
           src={emote.url}
-          alt={part}
-          title={part}
+          alt={emote.shortcut || part}
+          title={emote.shortcut || part}
           loading="lazy"
           key={`${message.platform_message_id}-yt-native-${index}`}
         />
