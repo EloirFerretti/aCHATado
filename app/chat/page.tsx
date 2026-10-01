@@ -46,6 +46,7 @@ type YouTubeEmote = {
 };
 type PickerProvider = "all" | "twitch" | "youtube" | "bttv" | "ffz" | "7tv";
 type PickerEmote = {
+  id?: string;
   code: string;
   url: string;
   provider: Exclude<PickerProvider, "all">;
@@ -53,6 +54,11 @@ type PickerEmote = {
   animated?: boolean;
   zeroWidth?: boolean;
   native?: boolean;
+  emoteType?: string;
+  tier?: string;
+  requiresSubscription?: boolean;
+  locked?: boolean;
+  lockReason?: string;
 };
 
 const platforms: Platform[] = ["twitch", "kick", "youtube"];
@@ -938,7 +944,12 @@ export default function Home() {
                       <div className="emotePickerHeader">
                         <div>
                           <strong>Emotes da {labels[selected]}</strong>
-                          <span>{pickerEmotes.length} disponíveis</span>
+                          <span>
+                            {pickerEmotes.filter((emote) => !emote.locked).length} disponíveis
+                            {pickerEmotes.some((emote) => emote.locked)
+                              ? ` · ${pickerEmotes.filter((emote) => emote.locked).length} bloqueados`
+                              : ""}
+                          </span>
                         </div>
                         <button type="button" onClick={() => setPickerOpen(false)} aria-label="Fechar emotes">×</button>
                       </div>
@@ -986,14 +997,35 @@ export default function Home() {
                                   {scoped.map((emote, index) => (
                                     <button
                                       type="button"
-                                      className="emotePickerItem"
+                                      className={`emotePickerItem ${emote.locked ? "locked" : ""}`}
                                       key={`${emote.provider}-${emote.code}-${index}`}
-                                      onClick={() => insertPickerEmote(emote)}
-                                      title={`${emote.code} · ${pickerProviderLabels[emote.provider]} · ${pickerScopeLabels[emote.scope]}`}
+                                      onClick={() => {
+                                        if (!emote.locked) insertPickerEmote(emote);
+                                      }}
+                                      disabled={Boolean(emote.locked)}
+                                      aria-disabled={Boolean(emote.locked)}
+                                      title={
+                                        emote.locked
+                                          ? `${emote.code} · ${emote.lockReason || "Requer assinatura deste canal."}`
+                                          : `${emote.code} · ${pickerProviderLabels[emote.provider]} · ${pickerScopeLabels[emote.scope]}`
+                                      }
                                     >
-                                      <img src={emote.url} alt={emote.code} loading="lazy" />
+                                      <span className="emoteImageWrap">
+                                        <img src={emote.url} alt={emote.code} loading="lazy" />
+                                        {emote.locked && (
+                                          <span className="emoteLockBadge" aria-hidden="true">🔒</span>
+                                        )}
+                                      </span>
                                       <span>{emote.code}</span>
-                                      <small>{pickerProviderLabels[emote.provider]}</small>
+                                      <small>
+                                        {emote.locked
+                                          ? emote.tier === "3000"
+                                            ? "SUB TIER 3"
+                                            : emote.tier === "2000"
+                                              ? "SUB TIER 2"
+                                              : "SUB"
+                                          : pickerProviderLabels[emote.provider]}
+                                      </small>
                                     </button>
                                   ))}
                                 </div>
