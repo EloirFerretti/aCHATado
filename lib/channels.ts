@@ -18,20 +18,48 @@ async function responseJson(res: Response) {
 export async function resolveTwitchChannel(input: string, session?: PlatformSession | null): Promise<ResolvedChannel> {
   const login = cleanHandle(input, "twitch");
   if (!login) throw new Error("Informe o username do canal da Twitch.");
-  const token = await getTwitchAppToken();
-  const url = new URL("https://api.twitch.tv/helix/users");
-  url.searchParams.set("login", login);
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Client-Id": process.env.TWITCH_CLIENT_ID || "",
-    },
-    cache: "no-store",
-  });
-  const json = await responseJson(res);
-  if (!res.ok) throw new Error(json?.message || `Twitch respondeu ${res.status}.`);
-  const user = json?.data?.[0];
-  if (!user) throw new Error(`Canal da Twitch “${input}” não encontrado.`);
+
+  const cacheKey = `channel-meta:twitch:${login}`;
+  const cached = await getState<{
+    id: string;
+    displayName?: string;
+    login?: string;
+    avatar?: string | null;
+    fetchedAt: number;
+  }>(cacheKey);
+
+  let user: any = null;
+  if (cached?.id && Date.now() - Number(cached.fetchedAt || 0) < 24 * 60 * 60 * 1000) {
+    user = {
+      id: cached.id,
+      display_name: cached.displayName,
+      login: cached.login || login,
+      profile_image_url: cached.avatar || null,
+    };
+  } else {
+    const token = await getTwitchAppToken();
+    const url = new URL("https://api.twitch.tv/helix/users");
+    url.searchParams.set("login", login);
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Client-Id": process.env.TWITCH_CLIENT_ID || "",
+      },
+      cache: "no-store",
+    });
+    const json = await responseJson(res);
+    if (!res.ok) throw new Error(json?.message || `Twitch respondeu ${res.status}.`);
+    user = json?.data?.[0];
+    if (!user) throw new Error(`Canal da Twitch “${input}” não encontrado.`);
+
+    await setState(cacheKey, {
+      id: String(user.id),
+      displayName: user.display_name || user.login || login,
+      login: user.login || login,
+      avatar: user.profile_image_url || null,
+      fetchedAt: Date.now(),
+    });
+  }
 
   const subscriptionReady = Boolean(session?.accessToken && session.userId);
   return {
@@ -51,17 +79,43 @@ export async function resolveTwitchChannel(input: string, session?: PlatformSess
 export async function resolveKickChannel(input: string): Promise<ResolvedChannel> {
   const slug = cleanHandle(input, "kick");
   if (!slug) throw new Error("Informe o username do canal da Kick.");
+
   const token = await getKickAppToken();
-  const url = new URL("https://api.kick.com/public/v1/channels");
-  url.searchParams.append("slug", slug);
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  const json = await responseJson(res);
-  if (!res.ok) throw new Error(json?.message || `Kick respondeu ${res.status}.`);
-  const channel = json?.data?.[0];
-  if (!channel) throw new Error(`Canal da Kick “${input}” não encontrado.`);
+  const cacheKey = `channel-meta:kick:${slug}`;
+  const cached = await getState<{
+    broadcasterUserId: string;
+    slug?: string;
+    thumbnail?: string | null;
+    fetchedAt: number;
+  }>(cacheKey);
+
+  let channel: any = null;
+  if (cached?.broadcasterUserId && Date.now() - Number(cached.fetchedAt || 0) < 6 * 60 * 60 * 1000) {
+    channel = {
+      broadcaster_user_id: cached.broadcasterUserId,
+      slug: cached.slug || slug,
+      thumbnail: cached.thumbnail || null,
+      stream: undefined,
+    };
+  } else {
+    const url = new URL("https://api.kick.com/public/v1/channels");
+    url.searchParams.append("slug", slug);
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const json = await responseJson(res);
+    if (!res.ok) throw new Error(json?.message || `Kick respondeu ${res.status}.`);
+    channel = json?.data?.[0];
+    if (!channel) throw new Error(`Canal da Kick “${input}” não encontrado.`);
+
+    await setState(cacheKey, {
+      broadcasterUserId: String(channel.broadcaster_user_id),
+      slug: channel.slug || slug,
+      thumbnail: channel.thumbnail || null,
+      fetchedAt: Date.now(),
+    });
+  }
 
   let subscriptionReady = false;
   let note = "Canal identificado.";
