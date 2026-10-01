@@ -9,7 +9,7 @@ function isPlatform(value: string): value is Platform {
 }
 
 function fail(origin: string, platform: string, message: string) {
-  const u = new URL("/", origin);
+  const u = new URL("/chat", origin);
   u.searchParams.set("auth_error", `${platform}: ${message}`);
   return NextResponse.redirect(u);
 }
@@ -99,7 +99,7 @@ export async function GET(
       session.avatar = json.items[0].snippet?.thumbnails?.default?.url;
     }
 
-    const redirect = new URL("/", origin);
+    const redirect = new URL("/chat", origin);
     redirect.searchParams.set("connected", platform);
     const response = NextResponse.redirect(redirect);
     writePlatformSession(response, platform, session);
