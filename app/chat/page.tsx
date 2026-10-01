@@ -121,6 +121,8 @@ export default function Home() {
   const [pickerSearch, setPickerSearch] = useState("");
   const [pickerProvider, setPickerProvider] = useState<PickerProvider>("all");
   const [pickerScopeUpgradeRequired, setPickerScopeUpgradeRequired] = useState(false);
+  const [popupMode, setPopupMode] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [ready, setReady] = useState(false);
   const lastId = useRef(0);
@@ -216,15 +218,52 @@ export default function Home() {
     }
 
     const query = new URLSearchParams(window.location.search);
+    const isPopup = query.get("popup") === "1";
+    setPopupMode(isPopup);
+
     const authError = query.get("auth_error");
     if (authError) setError(authError);
     if (query.get("connected")) autoResolveAfterAuth.current = true;
     if (authError || query.get("connected")) {
-      window.history.replaceState({}, "", window.location.pathname);
+      query.delete("auth_error");
+      query.delete("connected");
+      const cleanQuery = query.toString();
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ""}`,
+      );
     }
 
     loadAuth().finally(() => setReady(true));
   }, []);
+
+  useEffect(() => {
+    function syncFromStorage(event: StorageEvent) {
+      try {
+        if (event.key === "achatado_channel_inputs" && event.newValue) {
+          setChannelInputs({ ...emptyInputs, ...JSON.parse(event.newValue) });
+        }
+        if (event.key === "achatado_channels") {
+          setChannels(event.newValue ? JSON.parse(event.newValue) : {});
+        }
+      } catch {
+        // Ignora sincronizações inválidas.
+      }
+    }
+
+    window.addEventListener("storage", syncFromStorage);
+    return () => window.removeEventListener("storage", syncFromStorage);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSettingsOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [settingsOpen]);
 
   const channelKey = platforms
     .map((p) => `${p}:${channels[p]?.channelId || ""}:${channels[p]?.liveChatId || ""}`)
@@ -490,6 +529,20 @@ export default function Home() {
     }
   }
 
+  function openChatPopup() {
+    const width = Math.max(720, Math.min(window.screen.availWidth || 1100, 1200));
+    const height = Math.max(600, Math.min(window.screen.availHeight || 820, 900));
+    const left = Math.max(0, Math.round(((window.screen.availWidth || width) - width) / 2));
+    const top = Math.max(0, Math.round(((window.screen.availHeight || height) - height) / 2));
+
+    const popup = window.open(
+      "/chat?popup=1",
+      "achatado_chat_popup",
+      `popup=yes,resizable=yes,scrollbars=no,width=${width},height=${height},left=${left},top=${top}`,
+    );
+    popup?.focus();
+  }
+
   const maxLength = selected === "youtube" ? 200 : 500;
   const selectedTarget = channels[selected];
 
@@ -705,9 +758,127 @@ export default function Home() {
     return message.message;
   }
 
+  function renderSidebarContent() {
+    return (
+      <>
+        <section className="channelSetup sidebarChannels">
+                    <div className="channelSetupHead">
+                      <div>
+                        <strong>Canais que serão mesclados</strong>
+                        <span>Digite o username, @handle ou URL. O aCHATado identifica o canal e a live automaticamente.</span>
+                      </div>
+                    </div>
+        
+                    <div className="channelGrid">
+                      {platforms.map((p) => {
+                        const channel = channels[p];
+                        const platformError = channelErrors[p];
+                        return (
+                          <div className={`channelCard ${p}`} key={p}>
+                            <div className="channelCardTitle">
+                              <span className={`platformIcon ${p}`}>{initials[p]}</span>
+                              <strong>{labels[p]}</strong>
+                            </div>
+                            <input
+                              value={channelInputs[p]}
+                              onChange={(e) => updateChannelInput(p, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") resolveChannels();
+                              }}
+                              placeholder={placeholders[p]}
+                              aria-label={`Canal da ${labels[p]}`}
+                            />
+        
+                            {channel ? (
+                              <div className="channelResolved">
+                                <span className={`resolveDot ${channel.subscriptionReady === false ? "warning" : "ok"}`} />
+                                <div>
+                                  <b>{channel.channelName}</b>
+                                  <small>{channel.note || "Canal identificado."}</small>
+                                </div>
+                              </div>
+                            ) : platformError ? (
+                              <div className="channelResolved error">
+                                <span className="resolveDot bad" />
+                                <div>
+                                  <b>Não integrado</b>
+                                  <small>{platformError}</small>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="channelHint">Nenhum canal selecionado.</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+        
+                    <button className="mergeButton" onClick={resolveChannels} disabled={resolving}>
+                      {resolving ? "Identificando…" : "Identificar e mesclar"}
+                    </button>
+                  </section>
+        
+                  <div className="sidebarTitle">EXIBIR MENSAGENS</div>
+                  <button
+                    className={`filterButton ${filter === "all" ? "active" : ""}`}
+                    onClick={() => setFilter("all")}
+                  >
+                    <span className="allIcon">∞</span><span>Todas</span><b>{messages.length}</b>
+                  </button>
+        
+                  {platforms.map((p) => (
+                    <button
+                      key={p}
+                      className={`filterButton ${filter === p ? "active" : ""}`}
+                      onClick={() => setFilter(p)}
+                    >
+                      <span className={`platformIcon ${p}`}>{initials[p]}</span>
+                      <span>{labels[p]}</span>
+                      <b>{counts[p]}</b>
+                    </button>
+                  ))}
+        
+                  <div className="sidebarTitle accountsTitle">SUAS CONTAS</div>
+                  {platforms.map((p) => (
+                    <div className="accountRow" key={p}>
+                      <span className={`platformIcon ${p}`}>{initials[p]}</span>
+                      <div className="accountText">
+                        <strong>{labels[p]}</strong>
+                        <small>
+                          {!auth[p].configured
+                            ? "API não configurada"
+                            : auth[p].connected
+                              ? auth[p].userName || "Conectado"
+                              : "Não conectado"}
+                        </small>
+                      </div>
+        
+                      {!auth[p].configured ? (
+                        <span className="tinyButton disabled">Indisponível</span>
+                      ) : auth[p].connected ? (
+                        <button className="tinyButton" onClick={() => logout(p)}>Sair</button>
+                      ) : (
+                        <a className="tinyButton" href={`/api/auth/${p}/start`}>Conectar</a>
+                      )}
+                    </div>
+                  ))}
+        
+                  <div className="dbStatus">
+                    Banco: <b>
+                      {dbProvider === "render-postgres"
+                        ? "Render PostgreSQL"
+                        : dbProvider === "supabase"
+                          ? "Supabase"
+                          : "demonstração"}
+                    </b>
+                  </div>
+      </>
+    );
+  }
+
   return (
-    <main className="shell">
-      <header className="topbar">
+    <main className={`shell ${popupMode ? "popupMode" : ""}`}>
+      {!popupMode && <header className="topbar">
         <div className="brand">
           <div className="brandMark"><span>T</span><span>K</span><span>Y</span></div>
           <div>
@@ -721,9 +892,9 @@ export default function Home() {
             ? `${activeChannelCount} CANAL${activeChannelCount > 1 ? "IS" : ""}`
             : "CONFIGURAR"}
         </div>
-      </header>
+      </header>}
 
-      {demo && (
+      {!popupMode && demo && (
         <div className="demoBanner">
           <strong>Modo demonstração.</strong> O banco de dados ainda não está configurado.
         </div>
@@ -731,117 +902,7 @@ export default function Home() {
 
       <section className="workspace">
         <aside className="sidebar">
-          <section className="channelSetup sidebarChannels">
-            <div className="channelSetupHead">
-              <div>
-                <strong>Canais que serão mesclados</strong>
-                <span>Digite o username, @handle ou URL. O aCHATado identifica o canal e a live automaticamente.</span>
-              </div>
-            </div>
-
-            <div className="channelGrid">
-              {platforms.map((p) => {
-                const channel = channels[p];
-                const platformError = channelErrors[p];
-                return (
-                  <div className={`channelCard ${p}`} key={p}>
-                    <div className="channelCardTitle">
-                      <span className={`platformIcon ${p}`}>{initials[p]}</span>
-                      <strong>{labels[p]}</strong>
-                    </div>
-                    <input
-                      value={channelInputs[p]}
-                      onChange={(e) => updateChannelInput(p, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") resolveChannels();
-                      }}
-                      placeholder={placeholders[p]}
-                      aria-label={`Canal da ${labels[p]}`}
-                    />
-
-                    {channel ? (
-                      <div className="channelResolved">
-                        <span className={`resolveDot ${channel.subscriptionReady === false ? "warning" : "ok"}`} />
-                        <div>
-                          <b>{channel.channelName}</b>
-                          <small>{channel.note || "Canal identificado."}</small>
-                        </div>
-                      </div>
-                    ) : platformError ? (
-                      <div className="channelResolved error">
-                        <span className="resolveDot bad" />
-                        <div>
-                          <b>Não integrado</b>
-                          <small>{platformError}</small>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="channelHint">Nenhum canal selecionado.</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <button className="mergeButton" onClick={resolveChannels} disabled={resolving}>
-              {resolving ? "Identificando…" : "Identificar e mesclar"}
-            </button>
-          </section>
-
-          <div className="sidebarTitle">EXIBIR MENSAGENS</div>
-          <button
-            className={`filterButton ${filter === "all" ? "active" : ""}`}
-            onClick={() => setFilter("all")}
-          >
-            <span className="allIcon">∞</span><span>Todas</span><b>{messages.length}</b>
-          </button>
-
-          {platforms.map((p) => (
-            <button
-              key={p}
-              className={`filterButton ${filter === p ? "active" : ""}`}
-              onClick={() => setFilter(p)}
-            >
-              <span className={`platformIcon ${p}`}>{initials[p]}</span>
-              <span>{labels[p]}</span>
-              <b>{counts[p]}</b>
-            </button>
-          ))}
-
-          <div className="sidebarTitle accountsTitle">SUAS CONTAS</div>
-          {platforms.map((p) => (
-            <div className="accountRow" key={p}>
-              <span className={`platformIcon ${p}`}>{initials[p]}</span>
-              <div className="accountText">
-                <strong>{labels[p]}</strong>
-                <small>
-                  {!auth[p].configured
-                    ? "API não configurada"
-                    : auth[p].connected
-                      ? auth[p].userName || "Conectado"
-                      : "Não conectado"}
-                </small>
-              </div>
-
-              {!auth[p].configured ? (
-                <span className="tinyButton disabled">Indisponível</span>
-              ) : auth[p].connected ? (
-                <button className="tinyButton" onClick={() => logout(p)}>Sair</button>
-              ) : (
-                <a className="tinyButton" href={`/api/auth/${p}/start`}>Conectar</a>
-              )}
-            </div>
-          ))}
-
-          <div className="dbStatus">
-            Banco: <b>
-              {dbProvider === "render-postgres"
-                ? "Render PostgreSQL"
-                : dbProvider === "supabase"
-                  ? "Supabase"
-                  : "demonstração"}
-            </b>
-          </div>
+          {renderSidebarContent()}
         </aside>
 
         <section className="chatPanel">
@@ -850,9 +911,34 @@ export default function Home() {
               <strong>{filter === "all" ? "Chat unificado" : `Chat da ${labels[filter]}`}</strong>
               <span>{visible.length} mensagens carregadas</span>
             </div>
-            <div className="status">
-              <span />
-              {activeChannelCount ? "sincronizando" : "aguardando canais"}
+            <div className="chatHeaderActions">
+              <div className="status">
+                <span />
+                {activeChannelCount ? "sincronizando" : "aguardando canais"}
+              </div>
+              {popupMode ? (
+                <button
+                  type="button"
+                  className="chatUtilityButton"
+                  onClick={() => setSettingsOpen(true)}
+                  title="Configurações"
+                  aria-label="Abrir configurações do chat"
+                >
+                  ⚙
+                  <span>Configurações</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="chatUtilityButton"
+                  onClick={openChatPopup}
+                  title="Abrir chat em popup"
+                  aria-label="Abrir chat em uma nova janela"
+                >
+                  ↗
+                  <span>Popup</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1067,13 +1153,47 @@ export default function Home() {
         </section>
       </section>
 
-      <footer className="siteFooter">
+      {popupMode && settingsOpen && (
+        <div
+          className="popupSettingsOverlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSettingsOpen(false);
+          }}
+        >
+          <section
+            className="popupSettingsDialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="popup-settings-title"
+          >
+            <div className="popupSettingsHeader">
+              <div>
+                <strong id="popup-settings-title">Configurações do chat</strong>
+                <span>Canais, filtros e contas conectadas</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(false)}
+                aria-label="Fechar configurações"
+              >
+                ×
+              </button>
+            </div>
+            <div className="popupSettingsBody">
+              {renderSidebarContent()}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {!popupMode && <footer className="siteFooter">
         <span>aCHATado</span>
         <nav aria-label="Links legais">
           <a href="/privacy">Política de Privacidade</a>
           <a href="/terms">Termos de Serviço</a>
         </nav>
-      </footer>
+      </footer>}
     </main>
   );
 }
