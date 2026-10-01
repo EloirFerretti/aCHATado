@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbConfigured, dbProvider, listMessages } from "@/lib/store";
+import { enrichTwitchAvatars } from "@/lib/twitch-users";
 import type { ChannelFilters } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,9 @@ export async function GET(req: NextRequest) {
   if (twitch) filters.twitch = twitch;
   if (kick) filters.kick = kick;
   if (youtube) filters.youtube = youtube;
-  const messages = await listMessages(after, limit, filters);
+
+  const storedMessages = await listMessages(after, limit, filters);
+  const messages = await enrichTwitchAvatars(storedMessages);
+
   return NextResponse.json({ messages, dbConfigured, dbProvider });
 }
