@@ -137,6 +137,11 @@ async function findLiveFromChannelPage(channelId: string, key: string) {
 export async function findActiveYouTubeLive(channelId: string) {
   const key = youtubeApiKey();
 
+  // A página pública /live representa a live principal que o visitante do canal
+  // é direcionado a assistir. Ela tem prioridade sobre a playlist de uploads.
+  const publicLive = await findLiveFromChannelPage(channelId, key);
+  if (publicLive) return publicLive;
+
   try {
     const channelUrl = new URL("https://www.googleapis.com/youtube/v3/channels");
     channelUrl.searchParams.set("part", "contentDetails");
@@ -156,14 +161,13 @@ export async function findActiveYouTubeLive(channelId: string) {
         .map((item: any) => item?.contentDetails?.videoId)
         .filter(Boolean);
 
-      const live = await getLiveDetailsByVideoIds(ids, key);
-      if (live) return live;
+      return await getLiveDetailsByVideoIds(ids, key);
     }
   } catch {
-    // Se a playlist de uploads falhar, tenta a página pública /live.
+    // Se a API não conseguir ler a playlist, considera que não há live identificável.
   }
 
-  return await findLiveFromChannelPage(channelId, key);
+  return null;
 }
 
 export async function getYouTubeLiveChatId() {
