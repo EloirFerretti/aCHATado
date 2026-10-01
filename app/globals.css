@@ -315,11 +315,17 @@ a { color: inherit; text-decoration: none; }
   display:flex;
   align-items:center;
   gap:6px;
-  min-height:35px;
-  padding:0 12px 9px;
+  min-height:0;
+  padding:0 12px 6px;
   overflow-x:auto;
   overflow-y:hidden;
-  scrollbar-width:thin;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+.emoteProviderTabs::-webkit-scrollbar {
+  display:none;
+  width:0;
+  height:0;
 }
 .emoteProviderTabs button {
   flex:0 0 auto;
@@ -357,7 +363,7 @@ a { color: inherit; text-decoration: none; }
   flex:1 1 auto;
   min-height:0;
   overflow:auto;
-  padding:2px 12px 12px;
+  padding:0 12px 12px;
   scrollbar-width:thin;
 }
 .emotePickerGroup + .emotePickerGroup { margin-top:12px; }
@@ -366,7 +372,7 @@ a { color: inherit; text-decoration: none; }
   top:0;
   z-index:1;
   margin:0 -2px 6px;
-  padding:5px 2px;
+  padding:2px 2px 5px;
   background:#11141b;
   color:#697181;
   font-size:9px;
