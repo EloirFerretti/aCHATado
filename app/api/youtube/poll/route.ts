@@ -14,30 +14,41 @@ export async function POST(req: NextRequest) {
     let liveChatId = typeof body?.liveChatId === "string" ? body.liveChatId.trim() : "";
     let videoId = typeof body?.videoId === "string" ? body.videoId.trim() : "";
 
-    if (channelId && !liveChatId) {
+    if (channelId) {
       const discoveryKey = `youtube-channel:${channelId}`;
-      const discovery = await getState<{ liveChatId?: string | null; videoId?: string | null; nextResolveAt?: number }>(discoveryKey);
+      const discovery = await getState<{
+        liveChatId?: string | null;
+        videoId?: string | null;
+        nextResolveAt?: number;
+      }>(discoveryKey);
 
-      if (discovery?.nextResolveAt && Date.now() < discovery.nextResolveAt) {
-        liveChatId = discovery.liveChatId || "";
-        videoId = discovery.videoId || videoId;
+      const shouldResolve =
+        !discovery?.nextResolveAt ||
+        Date.now() >= discovery.nextResolveAt ||
+        !discovery.liveChatId;
+
+      if (shouldResolve) {
+        const live = await findActiveYouTubeLive(channelId);
+        liveChatId = live?.liveChatId || "";
+        videoId = live?.videoId || "";
+
+        await setState(discoveryKey, {
+          liveChatId: liveChatId || null,
+          videoId: videoId || null,
+          nextResolveAt: Date.now() + 45_000,
+        });
+
         if (!liveChatId) {
           return NextResponse.json({
             skipped: true,
             offline: true,
-            retryAfterMs: discovery.nextResolveAt - Date.now(),
+            retryAfterMs: 45_000,
           });
         }
       } else {
-        const live = await findActiveYouTubeLive(channelId);
-        liveChatId = live?.liveChatId || "";
-        videoId = live?.videoId || videoId;
-        await setState(discoveryKey, {
-          liveChatId: liveChatId || null,
-          videoId: videoId || null,
-          nextResolveAt: Date.now() + 60_000,
-        });
-        if (!liveChatId) return NextResponse.json({ skipped: true, offline: true, retryAfterMs: 60_000 });
+        // O estado persistido no servidor tem prioridade sobre valores antigos do navegador.
+        liveChatId = discovery.liveChatId || "";
+        videoId = discovery.videoId || videoId;
       }
     }
 
