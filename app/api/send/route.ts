@@ -30,6 +30,16 @@ export async function POST(req: NextRequest) {
     const stored = await readPlatformSession(platform);
     if (!stored) return NextResponse.json({ error: `Conecte sua conta ${platform} antes de enviar.` }, { status: 401 });
     const session = await refreshPlatformSession(platform, stored);
+    if (
+      platform === "youtube" &&
+      session.scope?.length &&
+      !session.scope.includes("https://www.googleapis.com/auth/youtube.force-ssl")
+    ) {
+      return NextResponse.json(
+        { error: "O escopo youtube.force-ssl não está presente nesta autorização. Desconecte a conta do YouTube e conecte novamente." },
+        { status: 403 },
+      );
+    }
 
     let upstream: Response;
     if (platform === "twitch") {
