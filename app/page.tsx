@@ -7,6 +7,7 @@ type Message = {
   id?: number;
   platform: Platform;
   platform_message_id: string;
+  channel_id?: string | null;
   author_name: string;
   author_avatar?: string | null;
   author_color?: string | null;
@@ -14,26 +15,37 @@ type Message = {
   created_at: string;
   badges?: unknown[];
 };
-
-type AuthInfo = Record<Platform, { connected: boolean; userName?: string; avatar?: string }>;
-
-const labels: Record<Platform, string> = {
-  twitch: "Twitch",
-  kick: "Kick",
-  youtube: "YouTube",
+type ResolvedChannel = {
+  platform: Platform;
+  input: string;
+  channelId: string;
+  channelName: string;
+  avatar?: string | null;
+  live?: boolean;
+  liveChatId?: string | null;
+  videoId?: string | null;
+  subscriptionReady?: boolean;
+  note?: string;
 };
+type AuthInfo = Record<Platform, { connected: boolean; configured: boolean; userName?: string; avatar?: string }>;
+type ChannelInputs = Record<Platform, string>;
+type ChannelMap = Partial<Record<Platform, ResolvedChannel>>;
+type ChannelErrors = Partial<Record<Platform, string>>;
 
-const initials: Record<Platform, string> = {
-  twitch: "T",
-  kick: "K",
-  youtube: "Y",
+const platforms: Platform[] = ["twitch", "kick", "youtube"];
+const labels: Record<Platform, string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube" };
+const initials: Record<Platform, string> = { twitch: "T", kick: "K", youtube: "Y" };
+const placeholders: Record<Platform, string> = {
+  twitch: "ex.: gaules",
+  kick: "ex.: xqc",
+  youtube: "ex.: @CazéTV",
 };
-
 const emptyAuth: AuthInfo = {
-  twitch: { connected: false },
-  kick: { connected: false },
-  youtube: { connected: false },
+  twitch: { connected: false, configured: false },
+  kick: { connected: false, configured: false },
+  youtube: { connected: false, configured: false },
 };
+const emptyInputs: ChannelInputs = { twitch: "", kick: "", youtube: "" };
 
 function timeLabel(iso: string) {
   try {
@@ -42,7 +54,6 @@ function timeLabel(iso: string) {
     return "";
   }
 }
-
 function avatarFallback(name: string) {
   return name.trim().slice(0, 1).toUpperCase() || "?";
 }
@@ -56,42 +67,165 @@ export default function Home() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [demo, setDemo] = useState(false);
+  const [dbProvider, setDbProvider] = useState("demo");
+  const [channelInputs, setChannelInputs] = useState<ChannelInputs>(emptyInputs);
+  const [channels, setChannels] = useState<ChannelMap>({});
+  const [channelErrors, setChannelErrors] = useState<ChannelErrors>({});
+  const [resolving, setResolving] = useState(false);
+  const [ready, setReady] = useState(false);
   const lastId = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const autoResolveAfterAuth = useRef(false);
 
   async function loadAuth() {
     const res = await fetch("/api/auth/status", { cache: "no-store" });
     if (res.ok) setAuth(await res.json());
   }
 
+  function activeParams() {
+    const params = new URLSearchParams();
+    for (const p of platforms) {
+      if (channels[p]?.channelId) params.set(p, channels[p]!.channelId);
+    }
+    return params;
+  }
+
   async function loadMessages(initial = false) {
+    if (!platforms.some((p) => channels[p]?.channelId)) {
+      setMessages([]);
+      return;
+    }
     const after = initial ? 0 : lastId.current;
-    const res = await fetch(`/api/messages?after=${after}&limit=120`, { cache: "no-store" });
+    const params = activeParams();
+    params.set("after", String(after));
+    params.set("limit", "120");
+    const res = await fetch(`/api/messages?${params.toString()}`, { cache: "no-store" });
     if (!res.ok) return;
     const json = await res.json();
     setDemo(!json.dbConfigured);
+    setDbProvider(json.dbProvider || "demo");
     const incoming: Message[] = json.messages || [];
     if (!incoming.length) return;
     setMessages((prev) => {
       if (initial) return incoming;
-      const known = new Set(prev.map((m) => m.platform_message_id));
-      return [...prev, ...incoming.filter((m) => !known.has(m.platform_message_id))].slice(-500);
+      const known = new Set(prev.map((m) => `${m.platform}:${m.platform_message_id}`));
+      return [
+        ...prev,
+        ...incoming.filter((m) => !known.has(`${m.platform}:${m.platform_message_id}`)),
+      ].slice(-500);
     });
-    for (const m of incoming) lastId.current = Math.max(lastId.current, Number(m.id || 0));
+    for (const m of incoming) {
+      lastId.current = Math.max(lastId.current, Number(m.id || 0));
+    }
+  }
+
+  async function resolveChannels() {
+    setResolving(true);
+    setChannelErrors({});
+    setError("");
+    try {
+      const requested = Object.fromEntries(platforms.map((p) => [p, channelInputs[p].trim()]));
+      localStorage.setItem("achatado_channel_inputs", JSON.stringify(requested));
+
+      if (!platforms.some((p) => requested[p])) {
+        setChannels({});
+        localStorage.removeItem("achatado_channels");
+        return;
+      }
+
+      const res = await fetch("/api/channels/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: requested }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Não foi possível identificar os canais.");
+
+      const next: ChannelMap = json.channels || {};
+      setChannels(next);
+      setChannelErrors(json.errors || {});
+      localStorage.setItem("achatado_channels", JSON.stringify(next));
+      setMessages([]);
+      lastId.current = 0;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao identificar os canais.");
+    } finally {
+      setResolving(false);
+    }
   }
 
   useEffect(() => {
-    loadAuth();
+    try {
+      const savedInputs = localStorage.getItem("achatado_channel_inputs");
+      const savedChannels = localStorage.getItem("achatado_channels");
+      if (savedInputs) setChannelInputs({ ...emptyInputs, ...JSON.parse(savedInputs) });
+      if (savedChannels) setChannels(JSON.parse(savedChannels));
+    } catch {
+      // Ignora dados locais inválidos.
+    }
+
+    const query = new URLSearchParams(window.location.search);
+    const authError = query.get("auth_error");
+    if (authError) setError(authError);
+    if (query.get("connected")) autoResolveAfterAuth.current = true;
+    if (authError || query.get("connected")) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    loadAuth().finally(() => setReady(true));
+  }, []);
+
+  const channelKey = platforms
+    .map((p) => `${p}:${channels[p]?.channelId || ""}:${channels[p]?.liveChatId || ""}`)
+    .join("|");
+
+  useEffect(() => {
+    if (!ready) return;
+    setMessages([]);
+    lastId.current = 0;
     loadMessages(true);
+
     const tick = window.setInterval(() => loadMessages(false), 1100);
     const yt = window.setInterval(() => {
-      fetch("/api/youtube/poll", { method: "POST" }).catch(() => undefined);
-    }, 2200);
+      const channel = channels.youtube;
+      if (!channel?.channelId) return;
+      fetch("/api/youtube/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId: channel.channelId,
+          liveChatId: channel.liveChatId || undefined,
+        }),
+      }).catch(() => undefined);
+    }, 2500);
+
     return () => {
       clearInterval(tick);
       clearInterval(yt);
     };
-  }, []);
+  }, [ready, channelKey]);
+
+  useEffect(() => {
+    const channel = channels.twitch;
+    if (!ready || !channel?.channelId || !auth.twitch.connected || !auth.twitch.configured) return;
+
+    const events = new EventSource(
+      `/api/twitch/stream?channelId=${encodeURIComponent(channel.channelId)}`,
+    );
+    events.addEventListener("chat", () => {
+      loadMessages(false);
+    });
+    events.addEventListener("error", () => undefined);
+
+    return () => events.close();
+  }, [ready, channels.twitch?.channelId, auth.twitch.connected, auth.twitch.configured]);
+
+  useEffect(() => {
+    if (!ready || !autoResolveAfterAuth.current) return;
+    if (!platforms.some((p) => channelInputs[p].trim())) return;
+    autoResolveAfterAuth.current = false;
+    resolveChannels();
+  }, [ready, auth.twitch.connected, auth.kick.connected, auth.youtube.connected]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -101,27 +235,44 @@ export default function Home() {
     () => messages.filter((m) => filter === "all" || m.platform === filter),
     [messages, filter],
   );
-
   const counts = useMemo(() => ({
     twitch: messages.filter((m) => m.platform === "twitch").length,
     kick: messages.filter((m) => m.platform === "kick").length,
     youtube: messages.filter((m) => m.platform === "youtube").length,
   }), [messages]);
 
+  const activeChannelCount = platforms.filter((p) => channels[p]?.channelId).length;
+
   async function send(e: FormEvent) {
     e.preventDefault();
     setError("");
     if (!text.trim()) return;
+
+    const target = channels[selected];
+    if (!target?.channelId) {
+      setError(`Informe e identifique primeiro o canal da ${labels[selected]}.`);
+      return;
+    }
+    if (!auth[selected]?.configured) {
+      setError(`A API da ${labels[selected]} ainda não foi configurada no servidor.`);
+      return;
+    }
     if (!auth[selected]?.connected) {
       window.location.href = `/api/auth/${selected}/start`;
       return;
     }
+
     setSending(true);
     try {
       const res = await fetch("/api/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: selected, message: text }),
+        body: JSON.stringify({
+          platform: selected,
+          message: text,
+          channelId: target.channelId,
+          liveChatId: target.liveChatId || undefined,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Não foi possível enviar a mensagem.");
@@ -142,7 +293,16 @@ export default function Home() {
     await loadAuth();
   }
 
+  function updateChannelInput(platform: Platform, value: string) {
+    setChannelInputs((prev) => ({ ...prev, [platform]: value }));
+    setChannelErrors((prev) => ({ ...prev, [platform]: undefined }));
+    if (channels[platform]?.input !== value) {
+      setChannels((prev) => ({ ...prev, [platform]: undefined }));
+    }
+  }
+
   const maxLength = selected === "youtube" ? 200 : 500;
+  const selectedTarget = channels[selected];
 
   return (
     <main className="shell">
@@ -150,46 +310,136 @@ export default function Home() {
         <div className="brand">
           <div className="brandMark"><span>T</span><span>K</span><span>Y</span></div>
           <div>
-            <h1>Unified Stream Chat</h1>
-            <p>Twitch + Kick + YouTube em um só lugar</p>
+            <h1>aCHATado</h1>
+            <p>Twitch + Kick + YouTube em um só chat</p>
           </div>
         </div>
-        <div className="livePill"><span className="liveDot" /> AO VIVO</div>
+        <div className="livePill">
+          <span className="liveDot" />
+          {activeChannelCount
+            ? `${activeChannelCount} CANAL${activeChannelCount > 1 ? "IS" : ""}`
+            : "CONFIGURAR"}
+        </div>
       </header>
+
+      <section className="channelSetup">
+        <div className="channelSetupHead">
+          <div>
+            <strong>Canais que serão mesclados</strong>
+            <span>Digite o username, @handle ou URL. O aCHATado identifica o canal e a live automaticamente.</span>
+          </div>
+          <button className="mergeButton" onClick={resolveChannels} disabled={resolving}>
+            {resolving ? "Identificando…" : "Identificar e mesclar"}
+          </button>
+        </div>
+
+        <div className="channelGrid">
+          {platforms.map((p) => {
+            const channel = channels[p];
+            const platformError = channelErrors[p];
+            return (
+              <div className={`channelCard ${p}`} key={p}>
+                <div className="channelCardTitle">
+                  <span className={`platformIcon ${p}`}>{initials[p]}</span>
+                  <strong>{labels[p]}</strong>
+                </div>
+                <input
+                  value={channelInputs[p]}
+                  onChange={(e) => updateChannelInput(p, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") resolveChannels();
+                  }}
+                  placeholder={placeholders[p]}
+                  aria-label={`Canal da ${labels[p]}`}
+                />
+
+                {channel ? (
+                  <div className="channelResolved">
+                    <span className={`resolveDot ${channel.subscriptionReady === false ? "warning" : "ok"}`} />
+                    <div>
+                      <b>{channel.channelName}</b>
+                      <small>{channel.note || "Canal identificado."}</small>
+                    </div>
+                  </div>
+                ) : platformError ? (
+                  <div className="channelResolved error">
+                    <span className="resolveDot bad" />
+                    <div>
+                      <b>Não integrado</b>
+                      <small>{platformError}</small>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="channelHint">Nenhum canal selecionado.</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {demo && (
         <div className="demoBanner">
-          <strong>Modo demonstração.</strong> Configure o Supabase e as APIs no <code>.env.local</code> para usar mensagens reais.
+          <strong>Modo demonstração.</strong> O banco de dados ainda não está configurado.
         </div>
       )}
 
       <section className="workspace">
         <aside className="sidebar">
           <div className="sidebarTitle">EXIBIR MENSAGENS</div>
-          <button className={`filterButton ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>
+          <button
+            className={`filterButton ${filter === "all" ? "active" : ""}`}
+            onClick={() => setFilter("all")}
+          >
             <span className="allIcon">∞</span><span>Todas</span><b>{messages.length}</b>
           </button>
-          {(["twitch", "kick", "youtube"] as Platform[]).map((p) => (
-            <button key={p} className={`filterButton ${filter === p ? "active" : ""}`} onClick={() => setFilter(p)}>
-              <span className={`platformIcon ${p}`}>{initials[p]}</span><span>{labels[p]}</span><b>{counts[p]}</b>
+
+          {platforms.map((p) => (
+            <button
+              key={p}
+              className={`filterButton ${filter === p ? "active" : ""}`}
+              onClick={() => setFilter(p)}
+            >
+              <span className={`platformIcon ${p}`}>{initials[p]}</span>
+              <span>{labels[p]}</span>
+              <b>{counts[p]}</b>
             </button>
           ))}
 
           <div className="sidebarTitle accountsTitle">SUAS CONTAS</div>
-          {(["twitch", "kick", "youtube"] as Platform[]).map((p) => (
+          {platforms.map((p) => (
             <div className="accountRow" key={p}>
               <span className={`platformIcon ${p}`}>{initials[p]}</span>
               <div className="accountText">
                 <strong>{labels[p]}</strong>
-                <small>{auth[p]?.connected ? auth[p]?.userName || "Conectado" : "Não conectado"}</small>
+                <small>
+                  {!auth[p].configured
+                    ? "API não configurada"
+                    : auth[p].connected
+                      ? auth[p].userName || "Conectado"
+                      : "Não conectado"}
+                </small>
               </div>
-              {auth[p]?.connected ? (
+
+              {!auth[p].configured ? (
+                <span className="tinyButton disabled">Indisponível</span>
+              ) : auth[p].connected ? (
                 <button className="tinyButton" onClick={() => logout(p)}>Sair</button>
               ) : (
                 <a className="tinyButton" href={`/api/auth/${p}/start`}>Conectar</a>
               )}
             </div>
           ))}
+
+          <div className="dbStatus">
+            Banco: <b>
+              {dbProvider === "render-postgres"
+                ? "Render PostgreSQL"
+                : dbProvider === "supabase"
+                  ? "Supabase"
+                  : "demonstração"}
+            </b>
+          </div>
         </aside>
 
         <section className="chatPanel">
@@ -198,19 +448,26 @@ export default function Home() {
               <strong>{filter === "all" ? "Chat unificado" : `Chat da ${labels[filter]}`}</strong>
               <span>{visible.length} mensagens carregadas</span>
             </div>
-            <div className="status"><span /> sincronizando</div>
+            <div className="status">
+              <span />
+              {activeChannelCount ? "sincronizando" : "aguardando canais"}
+            </div>
           </div>
 
           <div className="messageList">
             {visible.map((m) => (
               <article className="message" key={`${m.platform}-${m.platform_message_id}`}>
                 <div className={`avatarRing ${m.platform}`}>
-                  {m.author_avatar ? <img src={m.author_avatar} alt="" /> : <span>{avatarFallback(m.author_name)}</span>}
+                  {m.author_avatar
+                    ? <img src={m.author_avatar} alt="" />
+                    : <span>{avatarFallback(m.author_name)}</span>}
                   <span className={`miniPlatform ${m.platform}`}>{initials[m.platform]}</span>
                 </div>
                 <div className="messageBody">
                   <div className="meta">
-                    <strong style={m.author_color ? { color: m.author_color } : undefined}>{m.author_name}</strong>
+                    <strong style={m.author_color ? { color: m.author_color } : undefined}>
+                      {m.author_name}
+                    </strong>
                     <span className={`platformLabel ${m.platform}`}>{labels[m.platform]}</span>
                     <time>{timeLabel(m.created_at)}</time>
                   </div>
@@ -218,7 +475,17 @@ export default function Home() {
                 </div>
               </article>
             ))}
-            {!visible.length && <div className="emptyState">Nenhuma mensagem neste filtro ainda.</div>}
+
+            {!activeChannelCount && (
+              <div className="emptyState">
+                Informe ao menos um canal acima para começar a mesclar os chats.
+              </div>
+            )}
+            {activeChannelCount > 0 && !visible.length && (
+              <div className="emptyState">
+                Aguardando mensagens dos canais selecionados…
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
@@ -226,11 +493,14 @@ export default function Home() {
             <div className="sendVia">
               <span>Enviar pela</span>
               <div className="platformSwitch">
-                {(["twitch", "kick", "youtube"] as Platform[]).map((p) => (
+                {platforms.map((p) => (
                   <button
                     type="button"
                     key={p}
-                    onClick={() => { setSelected(p); setError(""); }}
+                    onClick={() => {
+                      setSelected(p);
+                      setError("");
+                    }}
                     className={`${selected === p ? "selected" : ""} ${p}`}
                   >
                     <span>{initials[p]}</span>{labels[p]}
@@ -238,9 +508,18 @@ export default function Home() {
                   </button>
                 ))}
               </div>
+              {selectedTarget && <span className="sendingTo">→ {selectedTarget.channelName}</span>}
             </div>
 
-            {!auth[selected]?.connected ? (
+            {!selectedTarget ? (
+              <div className="connectCallout">
+                Selecione o canal da {labels[selected]} acima.
+              </div>
+            ) : !auth[selected]?.configured ? (
+              <div className={`connectCallout ${selected}`}>
+                A API da {labels[selected]} precisa ser configurada no servidor.
+              </div>
+            ) : !auth[selected]?.connected ? (
               <a className={`connectCallout ${selected}`} href={`/api/auth/${selected}/start`}>
                 Conectar {labels[selected]} para enviar mensagens como você
               </a>
@@ -256,17 +535,21 @@ export default function Home() {
                         e.currentTarget.form?.requestSubmit();
                       }
                     }}
-                    placeholder={`Mensagem como ${auth[selected]?.userName || "você"} na ${labels[selected]}...`}
+                    placeholder={`Mensagem como ${auth[selected]?.userName || "você"} em ${selectedTarget.channelName}...`}
                     rows={1}
                     maxLength={maxLength}
                   />
                   <span className="counter">{[...text].length}/{maxLength}</span>
                 </div>
-                <button className={`sendButton ${selected}`} disabled={sending || !text.trim()}>
+                <button
+                  className={`sendButton ${selected}`}
+                  disabled={sending || !text.trim()}
+                >
                   {sending ? "Enviando…" : "Enviar"}
                 </button>
               </div>
             )}
+
             {error && <div className="errorBox">{error}</div>}
           </form>
         </section>
