@@ -1,0 +1,240 @@
+import path from "node:path";
+import * as grpc from "@grpc/grpc-js";
+import * as protoLoader from "@grpc/proto-loader";
+import { getState, insertMessages, setState } from "@/lib/store";
+import type { ChatMessage } from "@/lib/types";
+
+type StreamEntry = {
+  liveChatId: string;
+  channelId: string;
+  call: any | null;
+  lastTouched: number;
+  nextPageToken?: string;
+  status: "connecting" | "streaming" | "backoff" | "ended";
+  stopped: boolean;
+  retryTimer?: ReturnType<typeof setTimeout>;
+  idleTimer?: ReturnType<typeof setInterval>;
+  queue: Promise<void>;
+};
+
+type StreamRegistry = Map<string, StreamEntry>;
+
+const registryKey = "__achatado_youtube_streams__";
+const clientKey = "__achatado_youtube_grpc_client__";
+const IDLE_TIMEOUT_MS = 3 * 60_000;
+
+function registry(): StreamRegistry {
+  const root = globalThis as typeof globalThis & { [registryKey]?: StreamRegistry };
+  if (!root[registryKey]) root[registryKey] = new Map();
+  return root[registryKey]!;
+}
+
+function youtubeClient() {
+  const root = globalThis as typeof globalThis & { [clientKey]?: any };
+  if (root[clientKey]) return root[clientKey];
+
+  const definition = protoLoader.loadSync(
+    path.join(process.cwd(), "proto", "youtube_live_chat.proto"),
+    {
+      keepCase: false,
+      longs: String,
+      enums: Number,
+      defaults: false,
+      oneofs: true,
+    },
+  );
+  const loaded = grpc.loadPackageDefinition(definition) as any;
+  const Service = loaded.youtube.api.v3.V3DataLiveChatMessageService;
+  root[clientKey] = new Service(
+    "youtube.googleapis.com:443",
+    grpc.credentials.createSsl(),
+  );
+  return root[clientKey];
+}
+
+function messageType(value: unknown) {
+  const types: Record<number, string> = {
+    1: "textMessageEvent",
+    2: "tombstone",
+    3: "fanFundingEvent",
+    4: "chatEndedEvent",
+    5: "sponsorOnlyModeStartedEvent",
+    6: "sponsorOnlyModeEndedEvent",
+    7: "newSponsorEvent",
+    10: "userBannedEvent",
+    15: "superChatEvent",
+    16: "superStickerEvent",
+    17: "memberMilestoneChatEvent",
+    18: "membershipGiftingEvent",
+    19: "giftMembershipReceivedEvent",
+    20: "pollEvent",
+    21: "giftEvent",
+  };
+  return types[Number(value)] || "event";
+}
+
+function toChatMessage(item: any, channelId: string): ChatMessage | null {
+  const snippet = item?.snippet || {};
+  const author = item?.authorDetails || {};
+  const text =
+    snippet?.displayMessage ||
+    snippet?.textMessageDetails?.messageText ||
+    "";
+  if (!item?.id || !text) return null;
+
+  return {
+    platform: "youtube",
+    platform_message_id: String(item.id),
+    channel_id: channelId,
+    author_id: author?.channelId ? String(author.channelId) : null,
+    author_name: author?.displayName || "YouTube user",
+    author_avatar: author?.profileImageUrl || null,
+    author_color: null,
+    message: String(text),
+    message_type: messageType(snippet?.type),
+    badges: [
+      ...(author?.isChatOwner ? ["owner"] : []),
+      ...(author?.isChatModerator ? ["moderator"] : []),
+      ...(author?.isChatSponsor ? ["member"] : []),
+      ...(author?.isVerified ? ["verified"] : []),
+    ],
+    created_at: snippet?.publishedAt || new Date().toISOString(),
+    raw: item,
+  };
+}
+
+async function persistStreamState(entry: StreamEntry) {
+  await setState(`youtube-stream:${entry.liveChatId}`, {
+    nextPageToken: entry.nextPageToken || null,
+    updatedAt: Date.now(),
+  });
+}
+
+async function markEnded(entry: StreamEntry) {
+  entry.status = "ended";
+  entry.stopped = true;
+  if (entry.retryTimer) clearTimeout(entry.retryTimer);
+  try { entry.call?.cancel(); } catch { /* noop */ }
+  await setState(`youtube-channel:${entry.channelId}`, {
+    liveChatId: null,
+    videoId: null,
+    nextResolveAt: Date.now(),
+  });
+  registry().delete(entry.liveChatId);
+}
+
+function scheduleReconnect(entry: StreamEntry, delayMs: number) {
+  if (entry.stopped) return;
+  entry.status = "backoff";
+  if (entry.retryTimer) clearTimeout(entry.retryTimer);
+  entry.retryTimer = setTimeout(() => {
+    if (!entry.stopped) startStream(entry);
+  }, delayMs);
+}
+
+function startStream(entry: StreamEntry) {
+  if (entry.stopped) return;
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) {
+    entry.status = "backoff";
+    return;
+  }
+
+  entry.status = "connecting";
+  const metadata = new grpc.Metadata();
+  metadata.set("x-goog-api-key", apiKey);
+
+  const request: Record<string, unknown> = {
+    liveChatId: entry.liveChatId,
+    part: ["id", "snippet", "authorDetails"],
+    profileImageSize: 48,
+  };
+  if (entry.nextPageToken) request.pageToken = entry.nextPageToken;
+
+  const call = youtubeClient().StreamList(request, metadata);
+  entry.call = call;
+
+  call.on("data", (response: any) => {
+    if (entry.stopped) return;
+    entry.status = "streaming";
+    entry.lastTouched = Math.max(entry.lastTouched, Date.now() - IDLE_TIMEOUT_MS + 60_000);
+    if (response?.nextPageToken) entry.nextPageToken = String(response.nextPageToken);
+
+    entry.queue = entry.queue.then(async () => {
+      const messages = (response?.items || [])
+        .map((item: any) => toChatMessage(item, entry.channelId))
+        .filter(Boolean) as ChatMessage[];
+      if (messages.length) await insertMessages(messages);
+      await persistStreamState(entry);
+      if (response?.offlineAt) await markEnded(entry);
+    }).catch(() => undefined);
+  });
+
+  call.on("error", (error: any) => {
+    if (entry.stopped) return;
+    const text = String(error?.details || error?.message || "");
+    const code = Number(error?.code);
+    if (
+      code === grpc.status.FAILED_PRECONDITION ||
+      code === grpc.status.NOT_FOUND ||
+      /LIVE_CHAT_ENDED|live chat ended|disabled|not found/i.test(text)
+    ) {
+      void markEnded(entry);
+      return;
+    }
+    scheduleReconnect(
+      entry,
+      code === grpc.status.RESOURCE_EXHAUSTED ? 30 * 60_000 : 5_000,
+    );
+  });
+
+  call.on("end", () => {
+    if (!entry.stopped && entry.status !== "ended") scheduleReconnect(entry, 3_000);
+  });
+}
+
+function installIdleWatcher(entry: StreamEntry) {
+  entry.idleTimer = setInterval(() => {
+    if (Date.now() - entry.lastTouched <= IDLE_TIMEOUT_MS) return;
+    entry.stopped = true;
+    if (entry.retryTimer) clearTimeout(entry.retryTimer);
+    if (entry.idleTimer) clearInterval(entry.idleTimer);
+    try { entry.call?.cancel(); } catch { /* noop */ }
+    registry().delete(entry.liveChatId);
+  }, 30_000);
+}
+
+export async function ensureYouTubeLiveChatStream(
+  channelId: string,
+  liveChatId: string,
+) {
+  const existing = registry().get(liveChatId);
+  if (existing) {
+    existing.lastTouched = Date.now();
+    return {
+      active: !existing.stopped,
+      status: existing.status,
+      shared: true,
+    };
+  }
+
+  const saved = await getState<{ nextPageToken?: string | null }>(
+    `youtube-stream:${liveChatId}`,
+  );
+  const entry: StreamEntry = {
+    liveChatId,
+    channelId,
+    call: null,
+    lastTouched: Date.now(),
+    nextPageToken: saved?.nextPageToken || undefined,
+    status: "connecting",
+    stopped: false,
+    queue: Promise.resolve(),
+  };
+
+  registry().set(liveChatId, entry);
+  installIdleWatcher(entry);
+  startStream(entry);
+
+  return { active: true, status: entry.status, shared: false };
+}
