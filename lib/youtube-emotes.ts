@@ -1,9 +1,12 @@
+export type YouTubeEmoteCategory = "official" | "channel";
+
 export type YouTubeEmote = {
   id?: string;
   shortcut: string;
   aliases?: string[];
   url: string;
   custom: boolean;
+  category?: YouTubeEmoteCategory;
 };
 
 type CacheEntry = {
@@ -200,6 +203,49 @@ function collectEmojiObjects(
   }
 }
 
+function collectPickerCategories(
+  value: unknown,
+  target: Map<string, YouTubeEmoteCategory>,
+  unicode: Set<string>,
+) {
+  if (!value || typeof value !== "object") return;
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectPickerCategories(item, target, unicode);
+    return;
+  }
+
+  const object = value as Record<string, any>;
+  const category = object.emojiPickerCategoryRenderer;
+  if (category && typeof category === "object") {
+    const type = String(category.categoryType || "");
+    const ids = Array.isArray(category.emojiIds) ? category.emojiIds : [];
+
+    if (type === "CATEGORY_TYPE_UNICODE") {
+      for (const id of ids) {
+        if (typeof id === "string" && id) unicode.add(id);
+      }
+    } else {
+      const mapped: YouTubeEmoteCategory | null =
+        type === "CATEGORY_TYPE_GLOBAL"
+          ? "official"
+          : type === "CATEGORY_TYPE_CUSTOM"
+            ? "channel"
+            : null;
+
+      if (mapped) {
+        for (const id of ids) {
+          if (typeof id === "string" && id) target.set(id, mapped);
+        }
+      }
+    }
+  }
+
+  for (const child of Object.values(object)) {
+    collectPickerCategories(child, target, unicode);
+  }
+}
+
 function collectContinuationTokens(value: unknown, target: Set<string>) {
   if (!value || typeof value !== "object" || target.size >= 8) return;
 
@@ -367,6 +413,8 @@ export async function getYouTubeLiveEmotes(
   }
 
   const emotes: Record<string, YouTubeEmote> = {};
+  const categoryById = new Map<string, YouTubeEmoteCategory>();
+  const youtubeUnicodeEmojiIds = new Set<string>();
   const watchUrl =
     `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&gl=US`;
 
@@ -374,7 +422,10 @@ export async function getYouTubeLiveEmotes(
   const watchInitialData = initialDataFromHtml(watch.html);
   const watchCfg = extractYtcfg(watch.html);
 
-  if (watchInitialData) collectEmojiObjects(watchInitialData, emotes);
+  if (watchInitialData) {
+    collectEmojiObjects(watchInitialData, emotes);
+    collectPickerCategories(watchInitialData, categoryById, youtubeUnicodeEmojiIds);
+  }
 
   // A página pop-out direta pode conter os emojis globais em algumas variantes.
   try {
@@ -382,7 +433,10 @@ export async function getYouTubeLiveEmotes(
       `https://www.youtube.com/live_chat?is_popout=1&v=${encodeURIComponent(videoId)}&hl=en&gl=US`,
     );
     const directData = initialDataFromHtml(direct.html);
-    if (directData) collectEmojiObjects(directData, emotes);
+    if (directData) {
+      collectEmojiObjects(directData, emotes);
+      collectPickerCategories(directData, categoryById, youtubeUnicodeEmojiIds);
+    }
   } catch {
     // Continua com o fluxo por continuation.
   }
@@ -399,7 +453,10 @@ export async function getYouTubeLiveEmotes(
         `https://www.youtube.com/live_chat?continuation=${encodeURIComponent(continuation)}&hl=en&gl=US`,
       );
       const chatData = initialDataFromHtml(chatPage.html);
-      if (chatData) collectEmojiObjects(chatData, emotes);
+      if (chatData) {
+        collectEmojiObjects(chatData, emotes);
+        collectPickerCategories(chatData, categoryById, youtubeUnicodeEmojiIds);
+      }
 
       const chatCfg = {
         ...watchCfg,
@@ -410,11 +467,28 @@ export async function getYouTubeLiveEmotes(
         continuation,
         chatCfg,
       );
-      if (continuationJson) collectEmojiObjects(continuationJson, emotes);
+      if (continuationJson) {
+        collectEmojiObjects(continuationJson, emotes);
+        collectPickerCategories(continuationJson, categoryById, youtubeUnicodeEmojiIds);
+      }
     } catch {
       // Uma continuação pode ser Top Chat e outra Live Chat. Uma falha não
       // impede que as demais forneçam o catálogo.
     }
+  }
+
+  const uniqueEmotes = new Map<string, YouTubeEmote>();
+  for (const emote of Object.values(emotes)) {
+    const key = emote.id || emote.url;
+    if (!uniqueEmotes.has(key)) uniqueEmotes.set(key, emote);
+  }
+
+  for (const emote of uniqueEmotes.values()) {
+    if (!emote.id) continue;
+    const category = categoryById.get(emote.id);
+    if (!category) continue;
+    emote.category = category;
+    emote.custom = category === "channel";
   }
 
   const count = Object.keys(emotes).length;
@@ -430,7 +504,28 @@ export async function getYouTubeLiveEmotes(
       Object.values(emotes).map((emote) => emote.id || emote.url),
     ).size,
     continuations: continuations.length,
+    officialIds: [...categoryById.values()].filter((value) => value === "official").length,
+    channelIds: [...categoryById.values()].filter((value) => value === "channel").length,
+    unicodeIds: youtubeUnicodeEmojiIds.size,
+    classified: [...uniqueEmotes.values()].filter((emote) => Boolean(emote.category)).length,
+    unclassified: [...uniqueEmotes.values()].filter((emote) => !emote.category).length,
   });
 
   return emotes;
+}
+
+export async function getYouTubePickerEmotes(
+  videoId: string,
+  forceRefresh = false,
+) {
+  const emotes = await getYouTubeLiveEmotes(videoId, forceRefresh);
+  const unique = new Map<string, YouTubeEmote>();
+
+  for (const emote of Object.values(emotes)) {
+    if (!emote.category) continue;
+    const key = emote.id || emote.url;
+    if (!unique.has(key)) unique.set(key, emote);
+  }
+
+  return [...unique.values()];
 }
