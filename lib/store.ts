@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import type { ChannelFilters, ChatMessage, Platform } from "@/lib/types";
+import { publishChatMessage } from "@/lib/chat-events";
 
 const databaseUrl = process.env.DATABASE_URL;
 const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
@@ -72,18 +73,20 @@ async function supabaseFetch(path: string, init: RequestInit = {}) {
   return res;
 }
 
-export async function insertMessage(message: ChatMessage) {
-  if (!dbConfigured) return;
+export async function insertMessages(messages: ChatMessage[]) {
+  if (!messages.length) return;
+  if (!dbConfigured) {
+    for (const message of messages) publishChatMessage(message);
+    return;
+  }
+
   const pg = getPool();
   if (pg) {
     await ensurePgSchema();
-    await pg.query(
-      `insert into chat_messages (
-        platform, platform_message_id, channel_id, author_id, author_name,
-        author_avatar, author_color, message, message_type, badges, created_at, raw
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12::jsonb)
-      on conflict (platform, platform_message_id) do nothing`,
-      [
+    const params: unknown[] = [];
+    const rows = messages.map((message, index) => {
+      const base = index * 12;
+      params.push(
         message.platform,
         message.platform_message_id,
         message.channel_id,
@@ -96,12 +99,24 @@ export async function insertMessage(message: ChatMessage) {
         JSON.stringify(message.badges || []),
         message.created_at,
         JSON.stringify(message.raw ?? null),
-      ],
+      );
+      return `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10}::jsonb,$${base + 11},$${base + 12}::jsonb)`;
+    });
+
+    await pg.query(
+      `insert into chat_messages (
+        platform, platform_message_id, channel_id, author_id, author_name,
+        author_avatar, author_color, message, message_type, badges, created_at, raw
+      ) values ${rows.join(",")}
+      on conflict (platform, platform_message_id) do nothing`,
+      params,
     );
+
+    for (const message of messages) publishChatMessage(message);
     return;
   }
 
-  const res = await fetch(`${supabaseUrl}/rest/v1/chat_messages?on_conflict=platform_message_id`, {
+  const res = await fetch(`${supabaseUrl}/rest/v1/chat_messages?on_conflict=platform,platform_message_id`, {
     method: "POST",
     cache: "no-store",
     headers: {
@@ -110,9 +125,17 @@ export async function insertMessage(message: ChatMessage) {
       "Content-Type": "application/json",
       Prefer: "resolution=ignore-duplicates,return=minimal",
     },
-    body: JSON.stringify(message),
+    body: JSON.stringify(messages),
   });
-  if (!res.ok && res.status !== 409) throw new Error(`Falha ao gravar mensagem: ${res.status} ${await res.text()}`);
+  if (!res.ok && res.status !== 409) {
+    throw new Error(`Falha ao gravar mensagens: ${res.status} ${await res.text()}`);
+  }
+
+  for (const message of messages) publishChatMessage(message);
+}
+
+export async function insertMessage(message: ChatMessage) {
+  await insertMessages([message]);
 }
 
 function activeFilters(filters?: ChannelFilters) {
