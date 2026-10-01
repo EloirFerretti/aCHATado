@@ -314,7 +314,7 @@ export default function Home() {
         });
         const json = await res.json().catch(() => null);
 
-        if (res.ok && json?.mode === "stream") {
+        if (json?.mode === "stream") {
           if (json.videoId || json.liveChatId) {
             setChannels((prev) => {
               const current = prev.youtube;
@@ -335,9 +335,12 @@ export default function Home() {
               return next;
             });
           }
-          delay = Math.max(60_000, Number(json.retryAfterMs || 0));
+          delay = Math.max(
+            json.quotaExceeded ? 30 * 60_000 : 60_000,
+            Number(json.retryAfterMs || 0),
+          );
         } else {
-          // Fallback para ambientes em que gRPC esteja temporariamente indisponível.
+          // Fallback apenas para falha técnica do gRPC, nunca para cota/offline do YouTube.
           const fallback = await fetch("/api/youtube/poll", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
