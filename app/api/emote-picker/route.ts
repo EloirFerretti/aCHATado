@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type PickerEmote = {
+  id?: string;
   code: string;
   url: string;
   provider: "twitch" | "youtube" | "bttv" | "ffz" | "7tv";
@@ -16,6 +17,11 @@ type PickerEmote = {
   animated?: boolean;
   zeroWidth?: boolean;
   native?: boolean;
+  emoteType?: string;
+  tier?: string;
+  requiresSubscription?: boolean;
+  locked?: boolean;
+  lockReason?: string;
 };
 
 function platformValue(value: string | null): ThirdPartyPlatform | null {
