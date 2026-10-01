@@ -1,6 +1,7 @@
 export type YouTubeEmote = {
   id?: string;
   shortcut: string;
+  aliases?: string[];
   url: string;
   custom: boolean;
 };
@@ -17,31 +18,24 @@ type VideoCacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 const videoCache = new Map<string, VideoCacheEntry>();
-const TTL = 10 * 60 * 1000;
+const TTL = 5 * 60 * 1000;
+const EMPTY_TTL = 30 * 1000;
 const VIDEO_TTL = 2 * 60 * 1000;
 
-function extractAssignedJson(html: string, marker: string) {
-  const markerIndex = html.indexOf(marker);
-  if (markerIndex < 0) return null;
-
-  const start = html.indexOf("{", markerIndex + marker.length);
-  if (start < 0) return null;
+function extractJsonAt(text: string, start: number) {
+  if (start < 0 || text[start] !== "{") return null;
 
   let depth = 0;
   let inString = false;
   let escaped = false;
 
-  for (let i = start; i < html.length; i++) {
-    const char = html[i];
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
 
     if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
       continue;
     }
 
@@ -51,11 +45,11 @@ function extractAssignedJson(html: string, marker: string) {
     }
 
     if (char === "{") depth++;
-    if (char === "}") {
+    else if (char === "}") {
       depth--;
       if (depth === 0) {
         try {
-          return JSON.parse(html.slice(start, i + 1));
+          return JSON.parse(text.slice(start, i + 1));
         } catch {
           return null;
         }
@@ -66,23 +60,77 @@ function extractAssignedJson(html: string, marker: string) {
   return null;
 }
 
+function extractAssignedJson(html: string, markers: string[]) {
+  for (const marker of markers) {
+    const markerIndex = html.indexOf(marker);
+    if (markerIndex < 0) continue;
+    const start = html.indexOf("{", markerIndex + marker.length);
+    const value = extractJsonAt(html, start);
+    if (value) return value;
+  }
+  return null;
+}
+
+function extractYtcfg(html: string) {
+  const merged: Record<string, any> = {};
+  let offset = 0;
+
+  while (offset < html.length) {
+    const marker = html.indexOf("ytcfg.set(", offset);
+    if (marker < 0) break;
+    const start = html.indexOf("{", marker + 10);
+    const value = extractJsonAt(html, start);
+    if (value && typeof value === "object") Object.assign(merged, value);
+    offset = start > marker ? start + 1 : marker + 10;
+  }
+
+  return merged;
+}
+
 function normalizeImageUrl(url: unknown) {
   if (typeof url !== "string" || !url) return "";
   if (url.startsWith("//")) return `https:${url}`;
-  return url;
+  return url.replace(/\\u0026/g, "&");
 }
 
 function bestThumbnail(image: any) {
   const thumbnails = Array.isArray(image?.thumbnails) ? image.thumbnails : [];
   const thumbnail = thumbnails
     .slice()
-    .sort((a: any, b: any) =>
-      Number(b?.width || 0) * Number(b?.height || 0) -
-      Number(a?.width || 0) * Number(a?.height || 0)
+    .sort(
+      (a: any, b: any) =>
+        Number(b?.width || 0) * Number(b?.height || 0) -
+        Number(a?.width || 0) * Number(a?.height || 0),
     )
     .find((entry: any) => entry?.url);
 
   return normalizeImageUrl(thumbnail?.url);
+}
+
+function normalizeAliases(emoji: any) {
+  const result = new Set<string>();
+  const explicit = Array.isArray(emoji?.shortcuts)
+    ? emoji.shortcuts
+    : typeof emoji?.shortcut === "string"
+      ? [emoji.shortcut]
+      : [];
+
+  for (const value of explicit) {
+    if (typeof value === "string" && value.trim()) result.add(value.trim());
+  }
+
+  const id = String(emoji?.emojiId || emoji?.id || "").trim();
+  if (id) {
+    result.add(id);
+    if (
+      !id.startsWith(":") &&
+      /^[A-Za-z0-9_+\-.]+$/.test(id)
+    ) {
+      result.add(`:${id}:`);
+    }
+  }
+
+  return [...result];
 }
 
 function addEmojiObject(
@@ -92,13 +140,8 @@ function addEmojiObject(
   if (!emoji || typeof emoji !== "object") return;
 
   const url = bestThumbnail(emoji.image || emoji.icon || emoji.thumbnail);
-  const shortcuts = Array.isArray(emoji.shortcuts)
-    ? emoji.shortcuts
-    : typeof emoji.shortcut === "string"
-      ? [emoji.shortcut]
-      : [];
-
-  if (!url || !shortcuts.length) return;
+  const aliases = normalizeAliases(emoji);
+  if (!url || !aliases.length) return;
 
   const id =
     emoji.emojiId ||
@@ -106,20 +149,25 @@ function addEmojiObject(
     emoji.emoji_id ||
     undefined;
 
-  for (const shortcut of shortcuts) {
-    if (typeof shortcut !== "string" || !shortcut.trim()) continue;
-    const code = shortcut.trim();
-    target[code] = {
-      id: id ? String(id) : undefined,
-      shortcut: code,
-      url,
-      custom: Boolean(
-        emoji.isCustomEmoji ||
-        emoji.isCustom ||
-        emoji.custom ||
-        emoji.emojiType === "CUSTOM",
-      ),
-    };
+  const preferred =
+    aliases.find((value) => value.startsWith(":") && value.endsWith(":")) ||
+    aliases[0];
+
+  const value: YouTubeEmote = {
+    id: id ? String(id) : undefined,
+    shortcut: preferred,
+    aliases,
+    url,
+    custom: Boolean(
+      emoji.isCustomEmoji ||
+      emoji.isCustom ||
+      emoji.custom ||
+      emoji.emojiType === "CUSTOM",
+    ),
+  };
+
+  for (const alias of aliases) {
+    target[alias] = value;
   }
 }
 
@@ -136,15 +184,12 @@ function collectEmojiObjects(
 
   const object = value as Record<string, any>;
 
-  // O YouTube usa ambos os formatos:
-  // 1) { emoji: { shortcuts, image, ... } }
-  // 2) o próprio objeto do array liveChatRenderer.emojis contém
-  //    { emojiId, shortcuts, image, isCustomEmoji }.
   if (object.emoji && typeof object.emoji === "object") {
     addEmojiObject(object.emoji, target);
   }
+
   if (
-    Array.isArray(object.shortcuts) &&
+    (Array.isArray(object.shortcuts) || object.emojiId || object.id) &&
     (object.image || object.icon || object.thumbnail)
   ) {
     addEmojiObject(object, target);
@@ -155,19 +200,55 @@ function collectEmojiObjects(
   }
 }
 
-function collectLiveChatRendererEmojis(
-  initialData: any,
-  target: Record<string, YouTubeEmote>,
-) {
-  const candidates = [
-    initialData?.contents?.liveChatRenderer?.emojis,
-    initialData?.continuationContents?.liveChatContinuation?.emojis,
-  ];
+function collectContinuationTokens(value: unknown, target: Set<string>) {
+  if (!value || typeof value !== "object" || target.size >= 8) return;
 
-  for (const emojis of candidates) {
-    if (!Array.isArray(emojis)) continue;
-    for (const emoji of emojis) addEmojiObject(emoji, target);
+  if (Array.isArray(value)) {
+    for (const item of value) collectContinuationTokens(item, target);
+    return;
   }
+
+  const object = value as Record<string, any>;
+  for (const key of [
+    "reloadContinuationData",
+    "invalidationContinuationData",
+    "timedContinuationData",
+  ]) {
+    const token = object?.[key]?.continuation;
+    if (typeof token === "string" && token) target.add(token);
+  }
+
+  for (const child of Object.values(object)) {
+    collectContinuationTokens(child, target);
+  }
+}
+
+function liveChatContinuations(initialData: any) {
+  const tokens = new Set<string>();
+
+  const renderer =
+    initialData?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRenderer ||
+    initialData?.contents?.singleColumnWatchNextResults?.conversationBar?.liveChatRenderer;
+
+  if (renderer) collectContinuationTokens(renderer, tokens);
+
+  // Fallback para mudanças de layout do YouTube.
+  if (!tokens.size) {
+    const walk = (value: any) => {
+      if (!value || typeof value !== "object" || tokens.size >= 8) return;
+      if (value.liveChatRenderer) {
+        collectContinuationTokens(value.liveChatRenderer, tokens);
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) walk(item);
+      } else {
+        for (const child of Object.values(value)) walk(child);
+      }
+    };
+    walk(initialData);
+  }
+
+  return [...tokens];
 }
 
 async function fetchYouTubeHtml(url: string) {
@@ -178,15 +259,58 @@ async function fetchYouTubeHtml(url: string) {
       Accept: "text/html,application/xhtml+xml",
       "Accept-Language": "en-US,en;q=0.9",
       "User-Agent":
-        "Mozilla/5.0 (compatible; aCHATado/1.0; +https://achatado.onrender.com)",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
     },
   });
 
   if (!res.ok) {
-    throw new Error(`YouTube respondeu ${res.status} ao carregar emotes.`);
+    throw new Error(`YouTube respondeu ${res.status} ao carregar o chat.`);
   }
 
   return { html: await res.text(), finalUrl: res.url };
+}
+
+function initialDataFromHtml(html: string) {
+  return extractAssignedJson(html, [
+    "ytInitialData =",
+    'window["ytInitialData"] =',
+    "var ytInitialData =",
+  ]);
+}
+
+async function fetchContinuationJson(
+  continuation: string,
+  ytcfg: Record<string, any>,
+) {
+  const apiKey = String(ytcfg?.INNERTUBE_API_KEY || "");
+  const context = ytcfg?.INNERTUBE_CONTEXT;
+  if (!apiKey || !context) return null;
+
+  const res = await fetch(
+    `https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key=${encodeURIComponent(apiKey)}&prettyPrint=false`,
+    {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Origin: "https://www.youtube.com",
+        Referer: "https://www.youtube.com/",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+      },
+      body: JSON.stringify({
+        context,
+        continuation,
+        webClientInfo: { isDocumentHidden: false },
+      }),
+    },
+  );
+
+  if (!res.ok) return null;
+  return await res.json().catch(() => null);
 }
 
 export async function resolvePublicYouTubeLiveVideoId(channelId: string) {
@@ -195,7 +319,7 @@ export async function resolvePublicYouTubeLiveVideoId(channelId: string) {
 
   try {
     const { html, finalUrl } = await fetchYouTubeHtml(
-      `https://www.youtube.com/channel/${encodeURIComponent(channelId)}/live`,
+      `https://www.youtube.com/channel/${encodeURIComponent(channelId)}/live?hl=en&gl=US`,
     );
 
     let videoId = "";
@@ -233,28 +357,80 @@ export async function resolvePublicYouTubeLiveVideoId(channelId: string) {
   }
 }
 
-export async function getYouTubeLiveEmotes(videoId: string) {
+export async function getYouTubeLiveEmotes(
+  videoId: string,
+  forceRefresh = false,
+) {
   const cached = cache.get(videoId);
-  if (cached && cached.expiresAt > Date.now()) return cached.emotes;
-
-  const url = new URL("https://www.youtube.com/live_chat");
-  url.searchParams.set("is_popout", "1");
-  url.searchParams.set("v", videoId);
-  url.searchParams.set("hl", "en");
-
-  const { html } = await fetchYouTubeHtml(url.toString());
-
-  const initialData =
-    extractAssignedJson(html, "ytInitialData =") ||
-    extractAssignedJson(html, 'window["ytInitialData"] =') ||
-    extractAssignedJson(html, "var ytInitialData =");
-
-  const emotes: Record<string, YouTubeEmote> = {};
-  if (initialData) {
-    collectLiveChatRendererEmojis(initialData, emotes);
-    collectEmojiObjects(initialData, emotes);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+    return cached.emotes;
   }
 
-  cache.set(videoId, { emotes, expiresAt: Date.now() + TTL });
+  const emotes: Record<string, YouTubeEmote> = {};
+  const watchUrl =
+    `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&gl=US`;
+
+  const watch = await fetchYouTubeHtml(watchUrl);
+  const watchInitialData = initialDataFromHtml(watch.html);
+  const watchCfg = extractYtcfg(watch.html);
+
+  if (watchInitialData) collectEmojiObjects(watchInitialData, emotes);
+
+  // A página pop-out direta pode conter os emojis globais em algumas variantes.
+  try {
+    const direct = await fetchYouTubeHtml(
+      `https://www.youtube.com/live_chat?is_popout=1&v=${encodeURIComponent(videoId)}&hl=en&gl=US`,
+    );
+    const directData = initialDataFromHtml(direct.html);
+    if (directData) collectEmojiObjects(directData, emotes);
+  } catch {
+    // Continua com o fluxo por continuation.
+  }
+
+  const continuations = watchInitialData
+    ? liveChatContinuations(watchInitialData)
+    : [];
+
+  // O HTML de live_chat carregado por continuation é o mesmo fluxo usado pelo
+  // cliente web do YouTube e traz metadados que não aparecem no Data API.
+  for (const continuation of continuations.slice(0, 3)) {
+    try {
+      const chatPage = await fetchYouTubeHtml(
+        `https://www.youtube.com/live_chat?continuation=${encodeURIComponent(continuation)}&hl=en&gl=US`,
+      );
+      const chatData = initialDataFromHtml(chatPage.html);
+      if (chatData) collectEmojiObjects(chatData, emotes);
+
+      const chatCfg = {
+        ...watchCfg,
+        ...extractYtcfg(chatPage.html),
+      };
+
+      const continuationJson = await fetchContinuationJson(
+        continuation,
+        chatCfg,
+      );
+      if (continuationJson) collectEmojiObjects(continuationJson, emotes);
+    } catch {
+      // Uma continuação pode ser Top Chat e outra Live Chat. Uma falha não
+      // impede que as demais forneçam o catálogo.
+    }
+  }
+
+  const count = Object.keys(emotes).length;
+  cache.set(videoId, {
+    emotes,
+    expiresAt: Date.now() + (count ? TTL : EMPTY_TTL),
+  });
+
+  console.info("[youtube-emotes] catalog", {
+    videoId: videoId.slice(0, 6),
+    aliases: count,
+    unique: new Set(
+      Object.values(emotes).map((emote) => emote.id || emote.url),
+    ).size,
+    continuations: continuations.length,
+  });
+
   return emotes;
 }
