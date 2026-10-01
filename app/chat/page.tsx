@@ -3,6 +3,24 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Platform = "twitch" | "kick" | "youtube";
+type MessageBadge = {
+  set_id?: string;
+  setId?: string;
+  id?: string;
+  info?: string;
+  type?: string;
+  text?: string;
+  count?: number;
+};
+
+type TwitchBadgeCatalogEntry = {
+  setId: string;
+  id: string;
+  title: string;
+  description?: string;
+  imageUrl: string;
+};
+
 type Message = {
   id?: number;
   platform: Platform;
@@ -13,7 +31,7 @@ type Message = {
   author_color?: string | null;
   message: string;
   created_at: string;
-  badges?: unknown[];
+  badges?: MessageBadge[];
   raw?: any;
 };
 type ResolvedChannel = {
@@ -119,6 +137,7 @@ export default function Home() {
   const [channelErrors, setChannelErrors] = useState<ChannelErrors>({});
   const [thirdPartyEmotes, setThirdPartyEmotes] = useState<Record<string, EmoteDefinition>>({});
   const [youtubeEmotes, setYoutubeEmotes] = useState<Record<string, YouTubeEmote>>({});
+  const [twitchBadgeCatalog, setTwitchBadgeCatalog] = useState<Record<string, TwitchBadgeCatalogEntry>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerEmotes, setPickerEmotes] = useState<PickerEmote[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
@@ -337,6 +356,35 @@ export default function Home() {
       if (refreshTimer) clearInterval(refreshTimer);
     };
   }, [ready, channels.youtube?.videoId]);
+
+  useEffect(() => {
+    const channelId = channels.twitch?.channelId;
+    if (!ready || !channelId) {
+      setTwitchBadgeCatalog({});
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/twitch/badges?channelId=${encodeURIComponent(channelId)}`, {
+      cache: "no-store",
+    })
+      .then(async (res) =>
+        res.ok
+          ? res.json()
+          : Promise.reject(new Error("Falha ao carregar badges da Twitch")),
+      )
+      .then((json) => {
+        if (!cancelled) setTwitchBadgeCatalog(json.badges || {});
+      })
+      .catch(() => {
+        if (!cancelled) setTwitchBadgeCatalog({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, channels.twitch?.channelId]);
+
 
   useEffect(() => {
     if (!ready) return;
@@ -882,6 +930,119 @@ export default function Home() {
     return parts.length ? parts : message.message;
   }
 
+  function kickBadgeGlyph(type: string) {
+    const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    const glyphs: Record<string, string> = {
+      broadcaster: "C",
+      moderator: "M",
+      vip: "V",
+      subscriber: "S",
+      founder: "F",
+      sub_gifter: "G",
+      verified: "✓",
+      bot: "B",
+      staff: "K",
+      og: "OG",
+    };
+    return glyphs[normalized] || normalized.slice(0, 2).toUpperCase() || "?";
+  }
+
+  function kickBadgesForMessage(message: Message) {
+    const result: MessageBadge[] = [...(message.badges || [])];
+    const seen = new Set(
+      result.map((badge) => String(badge.type || "").toLowerCase()).filter(Boolean),
+    );
+
+    const raw = message.raw;
+    const senderId = raw?.sender?.user_id;
+    const broadcasterId = raw?.broadcaster?.user_id;
+
+    if (
+      senderId &&
+      broadcasterId &&
+      String(senderId) === String(broadcasterId) &&
+      !seen.has("broadcaster")
+    ) {
+      result.unshift({ type: "broadcaster", text: "Broadcaster" });
+      seen.add("broadcaster");
+    }
+
+    if (raw?.sender?.is_verified && !seen.has("verified")) {
+      result.push({ type: "verified", text: "Verified" });
+    }
+
+    return result;
+  }
+
+  function renderUserBadges(message: Message) {
+    if (message.platform === "twitch") {
+      const badges = (message.badges || [])
+        .map((badge) => {
+          const setId = String(badge.set_id || badge.setId || "");
+          const id = String(badge.id || "");
+          if (!setId || !id) return null;
+          const resolved = twitchBadgeCatalog[`${setId}:${id}`];
+          return resolved ? { badge, resolved, key: `${setId}:${id}` } : null;
+        })
+        .filter(Boolean) as Array<{
+          badge: MessageBadge;
+          resolved: TwitchBadgeCatalogEntry;
+          key: string;
+        }>;
+
+      if (!badges.length) return null;
+
+      return (
+        <span className="userBadges twitchBadges" aria-label="Badges da Twitch">
+          {badges.map(({ resolved, key }, index) => (
+            <img
+              className="chatUserBadge twitchUserBadge"
+              key={`${key}-${index}`}
+              src={resolved.imageUrl}
+              alt=""
+              title={resolved.title}
+              loading="lazy"
+            />
+          ))}
+        </span>
+      );
+    }
+
+    if (message.platform === "kick") {
+      const badges = kickBadgesForMessage(message);
+      if (!badges.length) return null;
+
+      return (
+        <span className="userBadges kickBadges" aria-label="Badges da Kick">
+          {badges.map((badge, index) => {
+            const type = String(badge.type || "badge")
+              .toLowerCase()
+              .replace(/[^a-z0-9_-]/g, "");
+            const label = String(badge.text || badge.type || "Badge");
+            const count =
+              typeof badge.count === "number" && badge.count > 0
+                ? badge.count
+                : null;
+
+            return (
+              <span
+                className={`chatUserBadge kickUserBadge kickBadge-${type}`}
+                key={`${type}-${index}`}
+                title={count ? `${label} · ${count}` : label}
+                aria-label={count ? `${label}, ${count}` : label}
+              >
+                <b aria-hidden="true">{kickBadgeGlyph(type)}</b>
+                {count !== null && <i aria-hidden="true">{count}</i>}
+              </span>
+            );
+          })}
+        </span>
+      );
+    }
+
+    return null;
+  }
+
   function renderYouTubeMessage(message: Message) {
     if (!youtubeEmotePattern) return message.message;
 
@@ -1128,6 +1289,7 @@ export default function Home() {
                 </div>
                 <div className="messageBody">
                   <div className="meta">
+                    {renderUserBadges(m)}
                     <strong style={m.author_color ? { color: m.author_color } : undefined}>
                       {m.author_name}
                     </strong>
