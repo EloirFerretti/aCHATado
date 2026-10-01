@@ -274,46 +274,96 @@ export default function Home() {
     lastId.current = 0;
     loadMessages(true);
 
-    const tick = window.setInterval(() => loadMessages(false), 1100);
-    const yt = window.setInterval(() => {
+    const events = new EventSource("/api/events");
+    events.addEventListener("chat", (event) => {
+      try {
+        const incoming = JSON.parse((event as MessageEvent).data) as Message;
+        const activeChannel = channels[incoming.platform]?.channelId;
+        if (!activeChannel || incoming.channel_id !== activeChannel) return;
+
+        setMessages((prev) => {
+          const key = `${incoming.platform}:${incoming.platform_message_id}`;
+          if (prev.some((m) => `${m.platform}:${m.platform_message_id}` === key)) return prev;
+          return [...prev, incoming].slice(-500);
+        });
+      } catch {
+        // O reconciliador periódico recupera qualquer evento perdido.
+      }
+    });
+
+    // Apenas reconciliação de segurança; as mensagens chegam por SSE em tempo real.
+    const reconcile = window.setInterval(() => loadMessages(false), 30_000);
+
+    let youtubeTimer: number | undefined;
+    let cancelled = false;
+
+    const syncYouTube = async () => {
       const channel = channels.youtube;
-      if (!channel?.channelId) return;
-      fetch("/api/youtube/poll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          channelId: channel.channelId,
-          liveChatId: channel.liveChatId || undefined,
-        }),
-      })
-        .then(async (res) => res.ok ? res.json() : null)
-        .then((json) => {
-          if (!json?.videoId && !json?.liveChatId) return;
-          setChannels((prev) => {
-            const current = prev.youtube;
-            if (!current) return prev;
-            const nextVideoId = json.videoId || current.videoId;
-            const nextLiveChatId = json.liveChatId || current.liveChatId;
-            if (nextVideoId === current.videoId && nextLiveChatId === current.liveChatId) return prev;
-            const next = {
-              ...prev,
-              youtube: {
-                ...current,
-                videoId: nextVideoId,
-                liveChatId: nextLiveChatId,
-                live: true,
-              },
-            };
-            localStorage.setItem("achatado_channels", JSON.stringify(next));
-            return next;
+      if (cancelled || !channel?.channelId) return;
+
+      let delay = 60_000;
+      try {
+        const res = await fetch("/api/youtube/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelId: channel.channelId,
+            liveChatId: channel.liveChatId || undefined,
+            videoId: channel.videoId || undefined,
+          }),
+        });
+        const json = await res.json().catch(() => null);
+
+        if (res.ok && json?.mode === "stream") {
+          if (json.videoId || json.liveChatId) {
+            setChannels((prev) => {
+              const current = prev.youtube;
+              if (!current) return prev;
+              const nextVideoId = json.videoId || current.videoId;
+              const nextLiveChatId = json.liveChatId || current.liveChatId;
+              if (nextVideoId === current.videoId && nextLiveChatId === current.liveChatId) return prev;
+              const next = {
+                ...prev,
+                youtube: {
+                  ...current,
+                  videoId: nextVideoId,
+                  liveChatId: nextLiveChatId,
+                  live: Boolean(nextLiveChatId),
+                },
+              };
+              localStorage.setItem("achatado_channels", JSON.stringify(next));
+              return next;
+            });
+          }
+          delay = Math.max(60_000, Number(json.retryAfterMs || 0));
+        } else {
+          // Fallback para ambientes em que gRPC esteja temporariamente indisponível.
+          const fallback = await fetch("/api/youtube/poll", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              channelId: channel.channelId,
+              liveChatId: channel.liveChatId || undefined,
+              videoId: channel.videoId || undefined,
+            }),
           });
-        })
-        .catch(() => undefined);
-    }, 10_000);
+          const fallbackJson = await fallback.json().catch(() => null);
+          delay = Math.max(10_000, Number(fallbackJson?.retryAfterMs || 0));
+        }
+      } catch {
+        delay = 15_000;
+      }
+
+      if (!cancelled) youtubeTimer = window.setTimeout(syncYouTube, delay);
+    };
+
+    syncYouTube();
 
     return () => {
-      clearInterval(tick);
-      clearInterval(yt);
+      cancelled = true;
+      events.close();
+      clearInterval(reconcile);
+      if (youtubeTimer) clearTimeout(youtubeTimer);
     };
   }, [ready, channelKey]);
 
