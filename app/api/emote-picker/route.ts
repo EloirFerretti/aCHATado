@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getThirdPartyEmotes, type ThirdPartyPlatform } from "@/lib/emotes";
 import { getTwitchPickerEmotes } from "@/lib/twitch-emotes";
-import { getYouTubeLiveEmotes } from "@/lib/youtube-emotes";
+import { getYouTubeLiveEmotes, resolvePublicYouTubeLiveVideoId } from "@/lib/youtube-emotes";
 import { readPlatformSession, writePlatformSession } from "@/lib/session";
 import { refreshPlatformSession } from "@/lib/platform-auth";
 
@@ -41,7 +41,7 @@ function sortEmotes(items: PickerEmote[]) {
 export async function GET(req: NextRequest) {
   const platform = platformValue(req.nextUrl.searchParams.get("platform"));
   const channelId = req.nextUrl.searchParams.get("channelId")?.trim() || "";
-  const videoId = req.nextUrl.searchParams.get("videoId")?.trim() || "";
+  let videoId = req.nextUrl.searchParams.get("videoId")?.trim() || "";
 
   if (!platform) {
     return NextResponse.json({ error: "Plataforma inválida." }, { status: 400 });
@@ -61,16 +61,23 @@ export async function GET(req: NextRequest) {
       const native = await getTwitchPickerEmotes(channelId, refreshedSession);
       emotes.push(...native.emotes.map((emote) => ({ ...emote, native: true })));
       scopeUpgradeRequired = Boolean(stored && !native.userScopeAvailable);
-    } else if (platform === "youtube" && videoId) {
-      const native = await getYouTubeLiveEmotes(videoId);
-      for (const emote of Object.values(native)) {
-        emotes.push({
-          code: emote.shortcut,
-          url: emote.url,
-          provider: "youtube",
-          scope: emote.custom ? "channel" : "global",
-          native: true,
-        });
+    } else if (platform === "youtube") {
+      if (!videoId) {
+        videoId = (await resolvePublicYouTubeLiveVideoId(channelId)) || "";
+      }
+
+      if (videoId) {
+        const native = await getYouTubeLiveEmotes(videoId);
+        for (const emote of Object.values(native)) {
+          emotes.push({
+            id: emote.id,
+            code: emote.shortcut,
+            url: emote.url,
+            provider: "youtube",
+            scope: emote.custom ? "channel" : "global",
+            native: true,
+          });
+        }
       }
     }
 
@@ -96,6 +103,8 @@ export async function GET(req: NextRequest) {
     const response = NextResponse.json(
       {
         platform,
+        videoId: videoId || undefined,
+        nativeCount: [...unique.values()].filter((emote) => emote.provider === "youtube").length,
         emotes: [...unique.values()],
         providers: {
           native: platform === "twitch" || platform === "youtube",
