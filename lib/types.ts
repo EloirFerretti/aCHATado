@@ -23,4 +23,20 @@ export type PlatformSession = {
   userId?: string;
   userName?: string;
   avatar?: string;
+  scope?: string[];
 };
+
+export type ResolvedChannel = {
+  platform: Platform;
+  input: string;
+  channelId: string;
+  channelName: string;
+  avatar?: string | null;
+  live?: boolean;
+  liveChatId?: string | null;
+  videoId?: string | null;
+  subscriptionReady?: boolean;
+  note?: string;
+};
+
+export type ChannelFilters = Partial<Record<Platform, string>>;
