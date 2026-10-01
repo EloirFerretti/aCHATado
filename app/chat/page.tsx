@@ -186,10 +186,13 @@ export default function Home() {
   const lastId = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const messageContentRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const autoResolveAfterAuth = useRef(false);
   const autoScrollPausedRef = useRef(false);
   const autoScrollingRef = useRef(false);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const autoScrollReleaseRef = useRef<number | null>(null);
   const previousMessageCountRef = useRef(0);
 
   async function loadAuth() {
@@ -577,25 +580,75 @@ export default function Home() {
     if (!paused) setUnseenMessageCount(0);
   }
 
+  function cancelPendingAutoScroll() {
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
+    if (autoScrollReleaseRef.current !== null) {
+      window.clearTimeout(autoScrollReleaseRef.current);
+      autoScrollReleaseRef.current = null;
+    }
+  }
+
+  function pinToLatest() {
+    if (autoScrollPausedRef.current) return;
+    const list = messageListRef.current;
+    if (!list) return;
+
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+    }
+
+    autoScrollFrameRef.current = requestAnimationFrame(() => {
+      autoScrollFrameRef.current = null;
+      const current = messageListRef.current;
+      if (!current || autoScrollPausedRef.current) return;
+
+      autoScrollingRef.current = true;
+      current.scrollTop = current.scrollHeight;
+
+      // Um segundo frame cobre mudanças de layout ocorridas no mesmo ciclo
+      // (badges, avatars, emotes e quebra de linha da mensagem).
+      requestAnimationFrame(() => {
+        const latest = messageListRef.current;
+        if (latest && !autoScrollPausedRef.current) {
+          latest.scrollTop = latest.scrollHeight;
+        }
+        autoScrollingRef.current = false;
+      });
+    });
+  }
+
   function scrollToLatest(behavior: ScrollBehavior = "smooth") {
     const list = messageListRef.current;
     if (!list) return;
 
+    cancelPendingAutoScroll();
     autoScrollingRef.current = true;
     setAutoScrollState(false);
-    list.scrollTo({ top: list.scrollHeight, behavior });
 
     if (behavior === "smooth") {
-      window.setTimeout(() => {
-        autoScrollingRef.current = false;
+      list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+      autoScrollReleaseRef.current = window.setTimeout(() => {
+        autoScrollReleaseRef.current = null;
         const current = messageListRef.current;
-        if (current) current.scrollTop = current.scrollHeight;
-      }, 450);
-    } else {
-      requestAnimationFrame(() => {
+        if (current && !autoScrollPausedRef.current) {
+          current.scrollTop = current.scrollHeight;
+        }
         autoScrollingRef.current = false;
-      });
+      }, 550);
+      return;
     }
+
+    list.scrollTop = list.scrollHeight;
+    requestAnimationFrame(() => {
+      const current = messageListRef.current;
+      if (current && !autoScrollPausedRef.current) {
+        current.scrollTop = current.scrollHeight;
+      }
+      autoScrollingRef.current = false;
+    });
   }
 
   function handleMessageListScroll() {
@@ -616,10 +669,28 @@ export default function Home() {
     }
   }
 
+  function handleMessageListWheel(event: React.WheelEvent<HTMLDivElement>) {
+    // Pausa antes do primeiro evento de scroll para não haver disputa entre
+    // uma nova mensagem e a intenção do usuário de subir no histórico.
+    if (event.deltaY < 0 && !autoScrollPausedRef.current) {
+      cancelPendingAutoScroll();
+      autoScrollingRef.current = false;
+      setAutoScrollState(true);
+    }
+  }
+
+  const visibleMessageCount =
+    filter === "all"
+      ? messages.length
+      : messages.reduce(
+          (count, message) => count + (message.platform === filter ? 1 : 0),
+          0,
+        );
+
   useEffect(() => {
     const previous = previousMessageCountRef.current;
-    const added = Math.max(0, messages.length - previous);
-    previousMessageCountRef.current = messages.length;
+    const added = Math.max(0, visibleMessageCount - previous);
+    previousMessageCountRef.current = visibleMessageCount;
 
     if (autoScrollPausedRef.current) {
       if (added > 0) {
@@ -628,13 +699,31 @@ export default function Home() {
       return;
     }
 
-    requestAnimationFrame(() => scrollToLatest("auto"));
-  }, [messages.length]);
+    pinToLatest();
+  }, [visibleMessageCount]);
 
   useEffect(() => {
-    previousMessageCountRef.current = messages.length;
-    requestAnimationFrame(() => scrollToLatest("auto"));
+    previousMessageCountRef.current = visibleMessageCount;
+    if (!autoScrollPausedRef.current) pinToLatest();
   }, [filter]);
+
+  useEffect(() => {
+    const content = messageContentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      // Mantém o chat preso ao fim quando imagens, badges ou emotes alteram
+      // a altura depois da mensagem já ter sido renderizada.
+      if (!autoScrollPausedRef.current) pinToLatest();
+    });
+    observer.observe(content);
+
+    return () => observer.disconnect();
+  }, [ready, channelKey]);
+
+  useEffect(() => {
+    return () => cancelPendingAutoScroll();
+  }, []);
 
   const visible = useMemo(
     () => messages.filter((m) => filter === "all" || m.platform === filter),
@@ -1311,7 +1400,9 @@ export default function Home() {
             className="messageList"
             ref={messageListRef}
             onScroll={handleMessageListScroll}
+            onWheel={handleMessageListWheel}
           >
+            <div className="messageListContent" ref={messageContentRef}>
             {visible.map((m) => (
               <article className="message" key={`${m.platform}-${m.platform_message_id}`}>
                 <div className={`avatarRing ${m.platform}`}>
@@ -1374,6 +1465,7 @@ export default function Home() {
               </div>
             )}
             <div ref={bottomRef} />
+            </div>
           </div>
 
           <form className="composer" onSubmit={send}>
