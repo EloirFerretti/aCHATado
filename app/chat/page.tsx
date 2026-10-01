@@ -147,8 +147,9 @@ function profileUrl(message: Message) {
       message.raw?.sender?.slug ||
       message.author_name;
     const value = String(username || "").trim();
-    return value
-      ? `https://kick.com/${encodeURIComponent(value)}`
+    const profileSlug = value.replace(/_/g, "-");
+    return profileSlug
+      ? `https://kick.com/${encodeURIComponent(profileSlug)}`
       : null;
   }
 
