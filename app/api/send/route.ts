@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
     const message = typeof payload.message === "string" ? payload.message.trim() : "";
     const channelId = typeof payload.channelId === "string" ? payload.channelId.trim() : "";
     let liveChatId = typeof payload.liveChatId === "string" ? payload.liveChatId.trim() : "";
+    let youtubeVideoId = "";
 
     if (!isPlatform(platform)) return NextResponse.json({ error: "Plataforma inválida" }, { status: 400 });
     if (!message) return NextResponse.json({ error: "Digite uma mensagem" }, { status: 400 });
@@ -52,13 +53,19 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({ broadcaster_user_id: Number(channelId), content: message, type: "user" }),
       });
     } else {
-      if (!liveChatId) {
-        const live = await findActiveYouTubeLive(channelId);
-        liveChatId = live?.liveChatId || "";
+      // Nunca confia no liveChatId salvo no navegador para enviar. Uma live pode ter
+      // terminado, outra pode ter começado ou o canal pode ter mais de uma transmissão.
+      const live = await findActiveYouTubeLive(channelId);
+      liveChatId = live?.liveChatId || "";
+      youtubeVideoId = live?.videoId || "";
+
+      if (!liveChatId || !youtubeVideoId) {
+        return NextResponse.json(
+          { error: "Não foi possível identificar a live atual desse canal do YouTube com chat ativo." },
+          { status: 409 },
+        );
       }
-      if (!liveChatId) {
-        return NextResponse.json({ error: "Esse canal do YouTube não tem uma live com chat ativo agora." }, { status: 409 });
-      }
+
       const u = new URL("https://www.googleapis.com/youtube/v3/liveChat/messages");
       u.searchParams.set("part", "snippet");
       upstream = await fetch(u, {
@@ -94,7 +101,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: reason, details: data }, { status: 422 });
     }
 
-    const response = NextResponse.json({ ok: true, platform, result: data });
+    const response = NextResponse.json({
+      ok: true,
+      platform,
+      result: data,
+      ...(platform === "youtube"
+        ? {
+            liveChatId,
+            videoId: youtubeVideoId,
+            watchUrl: youtubeVideoId ? `https://www.youtube.com/watch?v=${youtubeVideoId}` : undefined,
+          }
+        : {}),
+    });
     if (session.accessToken !== stored.accessToken) writePlatformSession(response, platform, session);
     return response;
   } catch (error) {
