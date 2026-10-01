@@ -806,7 +806,7 @@ a { color: inherit; text-decoration: none; }
   font-style:normal;
   font-weight:900;
 }
-.kickBadge-broadcaster {
+.kickUserBadge.kickBadge-broadcaster {
   background:#53fc18;
   color:#071404;
   border-color:#82ff59;
