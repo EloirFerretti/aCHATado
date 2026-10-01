@@ -26,6 +26,7 @@ type Message = {
   platform: Platform;
   platform_message_id: string;
   channel_id?: string | null;
+  author_id?: string | null;
   author_name: string;
   author_avatar?: string | null;
   author_color?: string | null;
@@ -120,6 +121,38 @@ function timeLabel(iso: string) {
 }
 function avatarFallback(name: string) {
   return name.trim().slice(0, 1).toUpperCase() || "?";
+}
+
+function profileUrl(message: Message) {
+  if (message.platform === "twitch") {
+    const login =
+      message.raw?.chatter_user_login ||
+      message.raw?.chatter_user_name ||
+      message.author_name;
+    const value = String(login || "").trim();
+    return value
+      ? `https://www.twitch.tv/${encodeURIComponent(value.toLowerCase())}`
+      : null;
+  }
+
+  if (message.platform === "kick") {
+    const username =
+      message.raw?.sender?.username ||
+      message.raw?.sender?.slug ||
+      message.author_name;
+    const value = String(username || "").trim();
+    return value
+      ? `https://kick.com/${encodeURIComponent(value)}`
+      : null;
+  }
+
+  const channelId =
+    message.raw?.authorDetails?.channelId ||
+    message.author_id;
+  const value = String(channelId || "").trim();
+  return value
+    ? `https://www.youtube.com/channel/${encodeURIComponent(value)}`
+    : null;
 }
 
 export default function Home() {
@@ -1282,17 +1315,46 @@ export default function Home() {
             {visible.map((m) => (
               <article className="message" key={`${m.platform}-${m.platform_message_id}`}>
                 <div className={`avatarRing ${m.platform}`}>
-                  {m.author_avatar
-                    ? <img src={m.author_avatar} alt="" />
-                    : <span>{avatarFallback(m.author_name)}</span>}
+                  {profileUrl(m) ? (
+                    <a
+                      className="avatarProfileLink"
+                      href={profileUrl(m)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`Abrir perfil de ${m.author_name}`}
+                      aria-label={`Abrir perfil de ${m.author_name}`}
+                    >
+                      {m.author_avatar
+                        ? <img src={m.author_avatar} alt="" />
+                        : <span>{avatarFallback(m.author_name)}</span>}
+                    </a>
+                  ) : (
+                    m.author_avatar
+                      ? <img src={m.author_avatar} alt="" />
+                      : <span>{avatarFallback(m.author_name)}</span>
+                  )}
                   <span className={`miniPlatform ${m.platform}`}>{initials[m.platform]}</span>
                 </div>
                 <div className="messageBody">
                   <div className="meta">
                     {renderUserBadges(m)}
-                    <strong style={m.author_color ? { color: m.author_color } : undefined}>
-                      {m.author_name}
-                    </strong>
+                    {profileUrl(m) ? (
+                      <a
+                        className="authorProfileLink"
+                        href={profileUrl(m)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`Abrir perfil de ${m.author_name}`}
+                      >
+                        <strong style={m.author_color ? { color: m.author_color } : undefined}>
+                          {m.author_name}
+                        </strong>
+                      </a>
+                    ) : (
+                      <strong style={m.author_color ? { color: m.author_color } : undefined}>
+                        {m.author_name}
+                      </strong>
+                    )}
                     <span className={`platformLabel ${m.platform}`}>{labels[m.platform]}</span>
                     <time>{timeLabel(m.created_at)}</time>
                   </div>
