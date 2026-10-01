@@ -400,6 +400,47 @@ a { color: inherit; text-decoration: none; }
   border-color:#394151;
   background:#1c212b;
 }
+.emotePickerItem.locked,
+.emotePickerItem.locked:hover {
+  position:relative;
+  border-color:#333947;
+  background:#12161d;
+  color:#707887;
+  cursor:not-allowed;
+  opacity:.78;
+}
+.emotePickerItem.locked img {
+  filter:grayscale(.35) brightness(.62);
+}
+.emoteImageWrap {
+  position:relative;
+  display:block !important;
+  width:42px;
+  height:38px;
+  margin:0 auto 3px;
+  overflow:visible !important;
+}
+.emoteImageWrap img {
+  margin:0 auto !important;
+}
+.emoteLockBadge {
+  position:absolute;
+  top:-5px;
+  right:-6px;
+  z-index:2;
+  width:20px;
+  height:20px;
+  display:grid !important;
+  place-items:center;
+  overflow:visible !important;
+  border:1px solid #4b5261;
+  border-radius:50%;
+  background:#202631;
+  box-shadow:0 2px 8px rgba(0,0,0,.45);
+  font-size:10px !important;
+  line-height:1;
+  text-overflow:clip !important;
+}
 .emotePickerItem img {
   display:block;
   width:34px;
