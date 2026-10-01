@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Platform = "twitch" | "kick" | "youtube";
 type MessageBadge = {
@@ -669,7 +669,7 @@ export default function Home() {
     }
   }
 
-  function handleMessageListWheel(event: React.WheelEvent<HTMLDivElement>) {
+  function handleMessageListWheel(event: WheelEvent<HTMLDivElement>) {
     // Pausa antes do primeiro evento de scroll para não haver disputa entre
     // uma nova mensagem e a intenção do usuário de subir no histórico.
     if (event.deltaY < 0 && !autoScrollPausedRef.current) {
