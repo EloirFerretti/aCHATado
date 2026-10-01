@@ -1,17 +1,31 @@
 import { getTwitchAppToken } from "@/lib/app-tokens";
 import type { ChatMessage } from "@/lib/types";
 
-type AvatarCacheEntry = {
+export type TwitchUserProfile = {
+  id: string;
+  login: string;
+  displayName: string;
   avatar: string | null;
+};
+
+type ProfileCacheEntry = {
+  profile: TwitchUserProfile | null;
   expiresAt: number;
 };
 
-const avatarCache = new Map<string, AvatarCacheEntry>();
-const AVATAR_TTL = 6 * 60 * 60 * 1000;
+const profileCache = new Map<string, ProfileCacheEntry>();
+const PROFILE_TTL = 6 * 60 * 60 * 1000;
 const MISSING_TTL = 15 * 60 * 1000;
 
 async function fetchTwitchUsers(ids: string[]) {
-  if (!ids.length) return [] as Array<{ id: string; profile_image_url?: string }>;
+  if (!ids.length) {
+    return [] as Array<{
+      id: string;
+      login?: string;
+      display_name?: string;
+      profile_image_url?: string;
+    }>;
+  }
 
   const token = await getTwitchAppToken();
   const url = new URL("https://api.twitch.tv/helix/users");
@@ -33,11 +47,11 @@ async function fetchTwitchUsers(ids: string[]) {
   return Array.isArray(json?.data) ? json.data : [];
 }
 
-export async function getTwitchUserAvatars(ids: string[]) {
+export async function getTwitchUserProfiles(ids: string[]) {
   const now = Date.now();
   const unique = [...new Set(ids.filter(Boolean))];
   const missing = unique.filter((id) => {
-    const cached = avatarCache.get(id);
+    const cached = profileCache.get(id);
     return !cached || cached.expiresAt <= now;
   });
 
@@ -50,27 +64,46 @@ export async function getTwitchUserAvatars(ids: string[]) {
       for (const user of users) {
         const id = String(user.id);
         found.add(id);
-        avatarCache.set(id, {
-          avatar: user.profile_image_url ? String(user.profile_image_url) : null,
-          expiresAt: now + AVATAR_TTL,
+        profileCache.set(id, {
+          profile: {
+            id,
+            login: String(user.login || ""),
+            displayName: String(user.display_name || user.login || ""),
+            avatar: user.profile_image_url
+              ? String(user.profile_image_url)
+              : null,
+          },
+          expiresAt: now + PROFILE_TTL,
         });
       }
 
       for (const id of batch) {
         if (!found.has(id)) {
-          avatarCache.set(id, {
-            avatar: null,
+          profileCache.set(id, {
+            profile: null,
             expiresAt: now + MISSING_TTL,
           });
         }
       }
     } catch {
-      // A falha no avatar nunca deve impedir o carregamento do chat.
+      // Falha de avatar/perfil nunca deve impedir o carregamento do chat.
     }
   }
 
   return new Map(
-    unique.map((id) => [id, avatarCache.get(id)?.avatar || null] as const),
+    unique.map(
+      (id) => [id, profileCache.get(id)?.profile || null] as const,
+    ),
+  );
+}
+
+export async function getTwitchUserAvatars(ids: string[]) {
+  const profiles = await getTwitchUserProfiles(ids);
+  return new Map(
+    [...profiles.entries()].map(([id, profile]) => [
+      id,
+      profile?.avatar || null,
+    ] as const),
   );
 }
 
@@ -81,7 +114,7 @@ export async function enrichTwitchAvatars(messages: ChatMessage[]) {
 
   if (!ids.length) return messages;
 
-  const avatars = await getTwitchUserAvatars(ids);
+  const profiles = await getTwitchUserProfiles(ids);
   return messages.map((message) => {
     if (
       message.platform !== "twitch" ||
@@ -93,7 +126,8 @@ export async function enrichTwitchAvatars(messages: ChatMessage[]) {
 
     return {
       ...message,
-      author_avatar: avatars.get(String(message.author_id)) || null,
+      author_avatar:
+        profiles.get(String(message.author_id))?.avatar || null,
     };
   });
 }
