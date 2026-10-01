@@ -8,9 +8,9 @@ export const metadata: Metadata = {
 
 const pageStyle = {
   minHeight: "100vh",
-  background: "#07111f",
-  color: "#f8fafc",
-  fontFamily: "Arial, Helvetica, sans-serif",
+  background: "radial-gradient(circle at 65% -20%, #24283a 0, transparent 33%), #090b10",
+  color: "#f6f7fb",
+  fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
 } as const;
 
 const wrapStyle = {
@@ -19,8 +19,8 @@ const wrapStyle = {
 } as const;
 
 const cardStyle = {
-  background: "rgba(15, 23, 42, 0.82)",
-  border: "1px solid rgba(148, 163, 184, 0.18)",
+  background: "rgba(17, 20, 27, 0.92)",
+  border: "1px solid #252b37",
   borderRadius: 20,
   padding: 28,
 } as const;
@@ -30,8 +30,8 @@ export default function HomePage() {
     <main style={pageStyle}>
       <header
         style={{
-          borderBottom: "1px solid rgba(148, 163, 184, 0.18)",
-          background: "rgba(7, 17, 31, 0.96)",
+          borderBottom: "1px solid rgba(255,255,255,.07)",
+          background: "rgba(9, 11, 16, 0.96)",
         }}
       >
         <div
@@ -46,23 +46,24 @@ export default function HomePage() {
         >
           <a
             href="/"
-            style={{ color: "#fff", textDecoration: "none", fontSize: 25, fontWeight: 800 }}
+            style={{ color: "#f6f7fb", textDecoration: "none", fontSize: 25, fontWeight: 800 }}
             aria-label="Página inicial do aCHATado"
           >
             aCHATado
           </a>
           <nav style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
-            <a href="/privacy" style={{ color: "#cbd5e1", textDecoration: "none" }}>
+            <a href="/privacy" style={{ color: "#9299a8", textDecoration: "none" }}>
               Política de Privacidade
             </a>
-            <a href="/terms" style={{ color: "#cbd5e1", textDecoration: "none" }}>
+            <a href="/terms" style={{ color: "#9299a8", textDecoration: "none" }}>
               Termos de Serviço
             </a>
             <a
               href="/chat"
               style={{
-                color: "#06111f",
-                background: "#f8fafc",
+                color: "#f6f7fb",
+                background: "#202632",
+                border: "1px solid #3b4454",
                 padding: "10px 16px",
                 borderRadius: 999,
                 textDecoration: "none",
@@ -87,7 +88,7 @@ export default function HomePage() {
           <p
             style={{
               margin: "0 0 14px",
-              color: "#93c5fd",
+              color: "#9299a8",
               fontWeight: 700,
               letterSpacing: ".08em",
               textTransform: "uppercase",
@@ -109,7 +110,7 @@ export default function HomePage() {
           <p
             style={{
               margin: "24px 0 0",
-              color: "#cbd5e1",
+              color: "#aeb5c2",
               fontSize: "clamp(19px, 2.5vw, 25px)",
               lineHeight: 1.55,
               maxWidth: 780,
@@ -125,8 +126,9 @@ export default function HomePage() {
               href="/chat"
               style={{
                 display: "inline-block",
-                color: "#06111f",
-                background: "#f8fafc",
+                color: "#f6f7fb",
+                background: "#202632",
+                border: "1px solid #3b4454",
                 padding: "14px 20px",
                 borderRadius: 12,
                 textDecoration: "none",
@@ -139,8 +141,9 @@ export default function HomePage() {
               href="/privacy"
               style={{
                 display: "inline-block",
-                color: "#e2e8f0",
-                border: "1px solid rgba(226,232,240,.28)",
+                color: "#adb4c1",
+                background: "#171b23",
+                border: "1px solid #303746",
                 padding: "14px 20px",
                 borderRadius: 12,
                 textDecoration: "none",
@@ -163,14 +166,14 @@ export default function HomePage() {
         >
           <article style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 21 }}>O que o aplicativo faz</h2>
-            <p style={{ color: "#cbd5e1", lineHeight: 1.7, marginBottom: 0 }}>
+            <p style={{ color: "#aeb5c2", lineHeight: 1.7, marginBottom: 0 }}>
               Mostra em um só lugar os chats dos canais selecionados e identifica a origem de
               cada mensagem, facilitando o acompanhamento simultâneo de diferentes plataformas.
             </p>
           </article>
           <article style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 21 }}>Conexão de contas</h2>
-            <p style={{ color: "#cbd5e1", lineHeight: 1.7, marginBottom: 0 }}>
+            <p style={{ color: "#aeb5c2", lineHeight: 1.7, marginBottom: 0 }}>
               A conexão com Twitch, Kick ou Google/YouTube é opcional e utiliza OAuth. O
               aCHATado não solicita a senha dessas contas. A autorização é feita diretamente
               pela plataforma escolhida.
@@ -178,7 +181,7 @@ export default function HomePage() {
           </article>
           <article style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 21 }}>YouTube</h2>
-            <p style={{ color: "#cbd5e1", lineHeight: 1.7, marginBottom: 0 }}>
+            <p style={{ color: "#aeb5c2", lineHeight: 1.7, marginBottom: 0 }}>
               Quando você conecta o YouTube, a autorização é usada para identificar o canal da
               conta conectada, ler informações necessárias do chat ao vivo e enviar mensagens
               ao chat em seu nome quando você solicitar.
@@ -190,7 +193,7 @@ export default function HomePage() {
       <section style={{ ...wrapStyle, padding: "0 0 72px" }}>
         <div style={cardStyle}>
           <h2 style={{ marginTop: 0, fontSize: 26 }}>Privacidade e controle</h2>
-          <p style={{ color: "#cbd5e1", lineHeight: 1.7, maxWidth: 900 }}>
+          <p style={{ color: "#aeb5c2", lineHeight: 1.7, maxWidth: 900 }}>
             Você pode usar a página inicial e consultar as informações sobre o serviço sem
             fazer login. Para recursos que exigem ações em uma plataforma, como enviar uma
             mensagem, você decide se deseja conectar a respectiva conta. O acesso pode ser
@@ -198,9 +201,9 @@ export default function HomePage() {
             plataforma correspondente.
           </p>
           <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-            <a href="/privacy" style={{ color: "#93c5fd" }}>Política de Privacidade</a>
-            <a href="/terms" style={{ color: "#93c5fd" }}>Termos de Serviço</a>
-            <a href="mailto:eloir.ferretti@gmail.com" style={{ color: "#93c5fd" }}>
+            <a href="/privacy" style={{ color: "#a970ff" }}>Política de Privacidade</a>
+            <a href="/terms" style={{ color: "#a970ff" }}>Termos de Serviço</a>
+            <a href="mailto:eloir.ferretti@gmail.com" style={{ color: "#a970ff" }}>
               Contato
             </a>
           </div>
@@ -209,13 +212,13 @@ export default function HomePage() {
 
       <footer
         style={{
-          borderTop: "1px solid rgba(148, 163, 184, 0.18)",
-          color: "#94a3b8",
+          borderTop: "1px solid #252b37",
+          color: "#697181",
           padding: "28px 0 42px",
         }}
       >
         <div style={wrapStyle}>
-          <strong style={{ color: "#e2e8f0" }}>aCHATado</strong>
+          <strong style={{ color: "#aeb5c2" }}>aCHATado</strong>
           <p style={{ lineHeight: 1.65, marginBottom: 0 }}>
             Projeto independente. Não é afiliado, patrocinado ou endossado por Twitch, Kick,
             Google ou YouTube.
