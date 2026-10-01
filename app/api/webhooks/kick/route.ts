@@ -31,6 +31,34 @@ function cleanKickContent(content: string) {
   return content.replace(/\[emote:\d+:([^\]]+)\]/g, "$1");
 }
 
+function kickBadges(event: any) {
+  const badges = Array.isArray(event?.sender?.identity?.badges)
+    ? [...event.sender.identity.badges]
+    : [];
+
+  const types = new Set(
+    badges
+      .map((badge: any) => String(badge?.type || "").toLowerCase())
+      .filter(Boolean),
+  );
+
+  if (
+    event?.sender?.user_id &&
+    event?.broadcaster?.user_id &&
+    String(event.sender.user_id) === String(event.broadcaster.user_id) &&
+    !types.has("broadcaster")
+  ) {
+    badges.unshift({ text: "Broadcaster", type: "broadcaster" });
+    types.add("broadcaster");
+  }
+
+  if (event?.sender?.is_verified && !types.has("verified")) {
+    badges.push({ text: "Verified", type: "verified" });
+  }
+
+  return badges;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const raw = await req.text();
@@ -48,7 +76,7 @@ export async function POST(req: NextRequest) {
       author_color: e.sender?.identity?.username_color || null,
       message: cleanKickContent(String(e.content || "")),
       message_type: "text",
-      badges: Array.isArray(e.sender?.identity?.badges) ? e.sender.identity.badges : [],
+      badges: kickBadges(e),
       created_at: e.created_at || new Date().toISOString(),
       raw: e,
     });
