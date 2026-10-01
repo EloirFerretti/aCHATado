@@ -358,6 +358,25 @@ export default function Home() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Não foi possível enviar a mensagem.");
+
+      if (selected === "youtube" && (json.liveChatId || json.videoId)) {
+        setChannels((prev) => {
+          const current = prev.youtube;
+          if (!current) return prev;
+          const next = {
+            ...prev,
+            youtube: {
+              ...current,
+              live: true,
+              liveChatId: json.liveChatId || current.liveChatId,
+              videoId: json.videoId || current.videoId,
+            },
+          };
+          localStorage.setItem("achatado_channels", JSON.stringify(next));
+          return next;
+        });
+      }
+
       setText("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao enviar mensagem.");
@@ -766,6 +785,14 @@ export default function Home() {
           </form>
         </section>
       </section>
+
+      <footer className="siteFooter">
+        <span>aCHATado</span>
+        <nav aria-label="Links legais">
+          <a href="/privacy">Política de Privacidade</a>
+          <a href="/terms">Termos de Serviço</a>
+        </nav>
+      </footer>
     </main>
   );
 }
