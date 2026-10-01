@@ -59,24 +59,8 @@ export async function resolveYouTubeChannel(input: string): Promise<ResolvedChan
   };
 }
 
-export async function findActiveYouTubeLive(channelId: string) {
-  const key = youtubeApiKey();
-
-  const channelUrl = new URL("https://www.googleapis.com/youtube/v3/channels");
-  channelUrl.searchParams.set("part", "contentDetails");
-  channelUrl.searchParams.set("id", channelId);
-  channelUrl.searchParams.set("key", key);
-  const channel = await youtubeJson(channelUrl);
-  const uploads = channel?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-  if (!uploads) return null;
-
-  const playlist = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
-  playlist.searchParams.set("part", "contentDetails");
-  playlist.searchParams.set("playlistId", uploads);
-  playlist.searchParams.set("maxResults", "25");
-  playlist.searchParams.set("key", key);
-  const playlistData = await youtubeJson(playlist);
-  const ids = (playlistData?.items || []).map((item: any) => item?.contentDetails?.videoId).filter(Boolean);
+async function getLiveDetailsByVideoIds(videoIds: string[], key: string) {
+  const ids = [...new Set(videoIds.filter(Boolean))].slice(0, 50);
   if (!ids.length) return null;
 
   const videos = new URL("https://www.googleapis.com/youtube/v3/videos");
@@ -95,7 +79,91 @@ export async function findActiveYouTubeLive(channelId: string) {
       };
     }
   }
+
   return null;
+}
+
+function candidateVideoIdsFromHtml(html: string, responseUrl: string) {
+  const ids: string[] = [];
+
+  try {
+    const finalUrl = new URL(responseUrl);
+    if (finalUrl.pathname === "/watch") {
+      const id = finalUrl.searchParams.get("v");
+      if (id) ids.push(id);
+    }
+  } catch {
+    // URL final inválida; continua procurando no HTML.
+  }
+
+  const canonical = html.match(
+    /<link[^>]+rel=["']canonical["'][^>]+href=["']https:\/\/www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{6,})/i,
+  );
+  if (canonical?.[1]) ids.push(canonical[1]);
+
+  const playerVideoId = html.match(
+    /"videoDetails"\s*:\s*\{[^{}]{0,5000}?"videoId"\s*:\s*"([A-Za-z0-9_-]{6,})"/,
+  );
+  if (playerVideoId?.[1]) ids.push(playerVideoId[1]);
+
+  return [...new Set(ids)];
+}
+
+async function findLiveFromChannelPage(channelId: string, key: string) {
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/channel/${encodeURIComponent(channelId)}/live`,
+      {
+        cache: "no-store",
+        redirect: "follow",
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "en-US,en;q=0.9",
+          "User-Agent":
+            "Mozilla/5.0 (compatible; aCHATado/1.0; +https://achatado.onrender.com)",
+        },
+      },
+    );
+
+    if (!res.ok) return null;
+    const html = await res.text();
+    const ids = candidateVideoIdsFromHtml(html, res.url);
+    return await getLiveDetailsByVideoIds(ids, key);
+  } catch {
+    return null;
+  }
+}
+
+export async function findActiveYouTubeLive(channelId: string) {
+  const key = youtubeApiKey();
+
+  try {
+    const channelUrl = new URL("https://www.googleapis.com/youtube/v3/channels");
+    channelUrl.searchParams.set("part", "contentDetails");
+    channelUrl.searchParams.set("id", channelId);
+    channelUrl.searchParams.set("key", key);
+    const channel = await youtubeJson(channelUrl);
+    const uploads = channel?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+
+    if (uploads) {
+      const playlist = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+      playlist.searchParams.set("part", "contentDetails");
+      playlist.searchParams.set("playlistId", uploads);
+      playlist.searchParams.set("maxResults", "25");
+      playlist.searchParams.set("key", key);
+      const playlistData = await youtubeJson(playlist);
+      const ids = (playlistData?.items || [])
+        .map((item: any) => item?.contentDetails?.videoId)
+        .filter(Boolean);
+
+      const live = await getLiveDetailsByVideoIds(ids, key);
+      if (live) return live;
+    }
+  } catch {
+    // Se a playlist de uploads falhar, tenta a página pública /live.
+  }
+
+  return await findLiveFromChannelPage(channelId, key);
 }
 
 export async function getYouTubeLiveChatId() {
