@@ -209,7 +209,8 @@ async function findLiveFromChannelPage(channelId: string, key: string) {
     const html = await res.text();
     const ids = candidateVideoIdsFromHtml(html, res.url);
     return await getLiveDetailsByVideoIds(ids, key);
-  } catch {
+  } catch (error) {
+    if (isYouTubeQuotaError(error)) throw error;
     return null;
   }
 }
@@ -243,7 +244,8 @@ export async function findActiveYouTubeLive(channelId: string) {
 
       return await getLiveDetailsByVideoIds(ids, key);
     }
-  } catch {
+  } catch (error) {
+    if (isYouTubeQuotaError(error)) throw error;
     // Se a API não conseguir ler a playlist, considera que não há live identificável.
   }
 
