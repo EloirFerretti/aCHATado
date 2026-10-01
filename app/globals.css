@@ -216,3 +216,217 @@ a { color: inherit; text-decoration: none; }
     margin-top: 0;
   }
 }
+
+
+/* Seletor de emotes */
+.textWrap { position:relative; }
+.emotePickerButton {
+  position:absolute;
+  left:9px;
+  top:8px;
+  z-index:3;
+  width:30px;
+  height:30px;
+  display:grid;
+  place-items:center;
+  border:1px solid #303746;
+  border-radius:8px;
+  background:#202632;
+  color:#aeb5c2;
+  font-size:17px;
+  line-height:1;
+  cursor:pointer;
+}
+.emotePickerButton:hover,
+.emotePickerButton.active {
+  color:#fff;
+  border-color:#4a5466;
+  background:#272e3b;
+}
+.textWrap textarea { padding-left:48px; }
+
+.emotePickerPanel {
+  position:absolute;
+  left:0;
+  bottom:calc(100% + 10px);
+  z-index:30;
+  width:min(560px, calc(100vw - 80px));
+  max-height:470px;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  border:1px solid #303746;
+  border-radius:14px;
+  background:#11141b;
+  box-shadow:0 26px 80px rgba(0,0,0,.48);
+}
+.emotePickerHeader {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:13px 14px 10px;
+  border-bottom:1px solid #252b37;
+  background:#12161e;
+}
+.emotePickerHeader strong {
+  display:block;
+  font-size:12px;
+}
+.emotePickerHeader span {
+  display:block;
+  margin-top:2px;
+  color:#697181;
+  font-size:9px;
+}
+.emotePickerHeader > button {
+  width:28px;
+  height:28px;
+  border:0;
+  border-radius:8px;
+  background:#1b202a;
+  color:#8f98a8;
+  font-size:18px;
+  cursor:pointer;
+}
+.emotePickerHeader > button:hover { color:#fff; background:#242a36; }
+
+.emotePickerSearch {
+  margin:10px 12px 8px;
+  width:calc(100% - 24px);
+  border:1px solid #303746;
+  outline:0;
+  border-radius:9px;
+  background:#171b23;
+  color:#fff;
+  padding:9px 10px;
+  font-size:11px;
+}
+.emotePickerSearch:focus {
+  border-color:#4a5466;
+  box-shadow:0 0 0 3px rgba(100,110,130,.08);
+}
+.emotePickerSearch::placeholder { color:#626a78; }
+
+.emoteProviderTabs {
+  display:flex;
+  gap:6px;
+  padding:0 12px 9px;
+  overflow-x:auto;
+  scrollbar-width:thin;
+}
+.emoteProviderTabs button {
+  flex:0 0 auto;
+  border:1px solid #29303d;
+  background:#171b23;
+  color:#7f8796;
+  border-radius:8px;
+  padding:6px 9px;
+  font-size:9px;
+  font-weight:800;
+  cursor:pointer;
+}
+.emoteProviderTabs button:hover,
+.emoteProviderTabs button.active {
+  color:#fff;
+  background:#212631;
+  border-color:#3a4353;
+}
+
+.emoteScopeNotice {
+  display:block;
+  margin:0 12px 8px;
+  padding:8px 10px;
+  border:1px solid #4d4322;
+  border-radius:8px;
+  background:#211d0e;
+  color:#f1d77b;
+  font-size:9px;
+  line-height:1.4;
+}
+.emoteScopeNotice:hover { border-color:#6a5c2d; }
+
+.emotePickerContent {
+  overflow:auto;
+  padding:2px 12px 12px;
+  scrollbar-width:thin;
+}
+.emotePickerGroup + .emotePickerGroup { margin-top:12px; }
+.emotePickerGroupTitle {
+  position:sticky;
+  top:0;
+  z-index:1;
+  margin:0 -2px 6px;
+  padding:5px 2px;
+  background:#11141b;
+  color:#697181;
+  font-size:9px;
+  font-weight:850;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.emotePickerGrid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(72px, 1fr));
+  gap:6px;
+}
+.emotePickerItem {
+  min-width:0;
+  min-height:76px;
+  padding:7px 5px 6px;
+  border:1px solid transparent;
+  border-radius:10px;
+  background:#151923;
+  color:#c7ccd5;
+  cursor:pointer;
+  overflow:hidden;
+}
+.emotePickerItem:hover {
+  border-color:#394151;
+  background:#1c212b;
+}
+.emotePickerItem img {
+  display:block;
+  width:34px;
+  height:34px;
+  margin:0 auto 5px;
+  object-fit:contain;
+}
+.emotePickerItem span,
+.emotePickerItem small {
+  display:block;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.emotePickerItem span {
+  font-size:9px;
+  font-weight:750;
+}
+.emotePickerItem small {
+  margin-top:2px;
+  color:#626a78;
+  font-size:7px;
+  text-transform:uppercase;
+}
+.emotePickerEmpty {
+  min-height:150px;
+  display:grid;
+  place-items:center;
+  color:#687081;
+  font-size:10px;
+}
+
+@media (max-width:800px) {
+  .emotePickerPanel {
+    position:fixed;
+    left:10px;
+    right:10px;
+    bottom:10px;
+    width:auto;
+    max-height:62vh;
+  }
+  .emotePickerGrid {
+    grid-template-columns:repeat(auto-fill, minmax(64px, 1fr));
+  }
+}
