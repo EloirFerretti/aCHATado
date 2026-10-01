@@ -11,9 +11,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const emotes = await getYouTubeLiveEmotes(videoId);
+    const forceRefresh = req.nextUrl.searchParams.get("refresh") === "1";
+    const emotes = await getYouTubeLiveEmotes(videoId, forceRefresh);
     return NextResponse.json(
-      { emotes },
+      {
+        emotes,
+        aliases: Object.keys(emotes).length,
+        unique: new Set(Object.values(emotes).map((emote) => emote.id || emote.url)).size,
+      },
       { headers: { "Cache-Control": "private, max-age=300" } },
     );
   } catch (error) {
