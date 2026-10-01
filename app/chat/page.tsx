@@ -309,7 +309,7 @@ export default function Home() {
           });
         })
         .catch(() => undefined);
-    }, 2500);
+    }, 10_000);
 
     return () => {
       clearInterval(tick);
