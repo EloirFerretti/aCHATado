@@ -1052,19 +1052,29 @@ export default function Home() {
     return parts.length ? parts : message.message;
   }
 
+  function kickBadgeAsset(type: string) {
+    const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    const assets: Record<string, string> = {
+      moderator: "/badges/kick/mod.svg",
+      mod: "/badges/kick/mod.svg",
+      og: "/badges/kick/ogog.svg",
+      ogog: "/badges/kick/ogog.svg",
+      vip: "/badges/kick/vip.svg",
+      verified: "/badges/kick/verified.svg",
+      verificado: "/badges/kick/verified.svg",
+    };
+    return assets[normalized] || null;
+  }
+
   function kickBadgeGlyph(type: string) {
     const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
     const glyphs: Record<string, string> = {
       broadcaster: "C",
-      moderator: "M",
-      vip: "V",
       subscriber: "S",
       founder: "F",
       sub_gifter: "G",
-      verified: "✓",
       bot: "B",
       staff: "K",
-      og: "OG",
     };
     return glyphs[normalized] || normalized.slice(0, 2).toUpperCase() || "?";
   }
@@ -1145,6 +1155,22 @@ export default function Home() {
               typeof badge.count === "number" && badge.count > 0
                 ? badge.count
                 : null;
+
+            const asset = kickBadgeAsset(type);
+
+            if (asset) {
+              return (
+                <img
+                  className={`chatUserBadge kickUserBadgeImage kickBadge-${type}`}
+                  key={`${type}-${index}`}
+                  src={asset}
+                  alt=""
+                  title={label}
+                  aria-label={label}
+                  loading="eager"
+                />
+              );
+            }
 
             return (
               <span
