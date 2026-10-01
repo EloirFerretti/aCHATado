@@ -9,8 +9,9 @@ function isPlatform(value: string): value is Platform {
   return value === "twitch" || value === "kick" || value === "youtube";
 }
 
-function homeWithError(origin: string, platform: string, message: string) {
+function homeWithError(origin: string, platform: string, message: string, popup = false) {
   const url = new URL("/chat", origin);
+  if (popup) url.searchParams.set("popup", "1");
   url.searchParams.set("auth_error", `${platform}: ${message}`);
   return NextResponse.redirect(url);
 }
@@ -23,6 +24,7 @@ export async function GET(
   if (!isPlatform(rawPlatform)) return NextResponse.json({ error: "Plataforma inválida" }, { status: 400 });
   const platform = rawPlatform;
   const origin = process.env.APP_URL?.replace(/\/$/, "") || req.nextUrl.origin;
+  const popup = req.nextUrl.searchParams.get("popup") === "1";
 
   try {
     const redirectUri = `${origin}/api/auth/${platform}/callback`;
@@ -72,9 +74,10 @@ export async function GET(
 
     const response = NextResponse.redirect(authorizeUrl);
     writeOauthCookie(response, `usc_oauth_state_${platform}`, state);
+    if (popup) writeOauthCookie(response, `usc_oauth_return_${platform}`, "popup");
     if (codeVerifier) writeOauthCookie(response, `usc_pkce_${platform}`, codeVerifier);
     return response;
   } catch (error) {
-    return homeWithError(origin, platform, error instanceof Error ? error.message : "erro ao iniciar autenticação");
+    return homeWithError(origin, platform, error instanceof Error ? error.message : "erro ao iniciar autenticação", popup);
   }
 }
