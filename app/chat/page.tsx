@@ -562,59 +562,60 @@ export default function Home() {
       <section className="workspace">
         <aside className="sidebar">
           <section className="channelSetup sidebarChannels">
-          <div className="channelSetupHead">
-          <div>
-          <strong>Canais que serão mesclados</strong>
-          <span>Digite o username, @handle ou URL. O aCHATado identifica o canal e a live automaticamente.</span>
-          </div>
-          <button className="mergeButton" onClick={resolveChannels} disabled={resolving}>
-          {resolving ? "Identificando…" : "Identificar e mesclar"}
-          </button>
-          </div>
-          
-          <div className="channelGrid">
-          {platforms.map((p) => {
-          const channel = channels[p];
-          const platformError = channelErrors[p];
-          return (
-          <div className={`channelCard ${p}`} key={p}>
-          <div className="channelCardTitle">
-          <span className={`platformIcon ${p}`}>{initials[p]}</span>
-          <strong>{labels[p]}</strong>
-          </div>
-          <input
-          value={channelInputs[p]}
-          onChange={(e) => updateChannelInput(p, e.target.value)}
-          onKeyDown={(e) => {
-          if (e.key === "Enter") resolveChannels();
-          }}
-          placeholder={placeholders[p]}
-          aria-label={`Canal da ${labels[p]}`}
-          />
-          
-          {channel ? (
-          <div className="channelResolved">
-          <span className={`resolveDot ${channel.subscriptionReady === false ? "warning" : "ok"}`} />
-          <div>
-          <b>{channel.channelName}</b>
-          <small>{channel.note || "Canal identificado."}</small>
-          </div>
-          </div>
-          ) : platformError ? (
-          <div className="channelResolved error">
-          <span className="resolveDot bad" />
-          <div>
-          <b>Não integrado</b>
-          <small>{platformError}</small>
-          </div>
-          </div>
-          ) : (
-          <div className="channelHint">Nenhum canal selecionado.</div>
-          )}
-          </div>
-          );
-          })}
-          </div>
+            <div className="channelSetupHead">
+              <div>
+                <strong>Canais que serão mesclados</strong>
+                <span>Digite o username, @handle ou URL. O aCHATado identifica o canal e a live automaticamente.</span>
+              </div>
+            </div>
+
+            <div className="channelGrid">
+              {platforms.map((p) => {
+                const channel = channels[p];
+                const platformError = channelErrors[p];
+                return (
+                  <div className={`channelCard ${p}`} key={p}>
+                    <div className="channelCardTitle">
+                      <span className={`platformIcon ${p}`}>{initials[p]}</span>
+                      <strong>{labels[p]}</strong>
+                    </div>
+                    <input
+                      value={channelInputs[p]}
+                      onChange={(e) => updateChannelInput(p, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") resolveChannels();
+                      }}
+                      placeholder={placeholders[p]}
+                      aria-label={`Canal da ${labels[p]}`}
+                    />
+
+                    {channel ? (
+                      <div className="channelResolved">
+                        <span className={`resolveDot ${channel.subscriptionReady === false ? "warning" : "ok"}`} />
+                        <div>
+                          <b>{channel.channelName}</b>
+                          <small>{channel.note || "Canal identificado."}</small>
+                        </div>
+                      </div>
+                    ) : platformError ? (
+                      <div className="channelResolved error">
+                        <span className="resolveDot bad" />
+                        <div>
+                          <b>Não integrado</b>
+                          <small>{platformError}</small>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="channelHint">Nenhum canal selecionado.</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <button className="mergeButton" onClick={resolveChannels} disabled={resolving}>
+              {resolving ? "Identificando…" : "Identificar e mesclar"}
+            </button>
           </section>
 
           <div className="sidebarTitle">EXIBIR MENSAGENS</div>
