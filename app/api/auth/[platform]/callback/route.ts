@@ -8,8 +8,9 @@ function isPlatform(value: string): value is Platform {
   return value === "twitch" || value === "kick" || value === "youtube";
 }
 
-function fail(origin: string, platform: string, message: string) {
+function fail(origin: string, platform: string, message: string, popup = false) {
   const u = new URL("/chat", origin);
+  if (popup) u.searchParams.set("popup", "1");
   u.searchParams.set("auth_error", `${platform}: ${message}`);
   return NextResponse.redirect(u);
 }
@@ -25,8 +26,9 @@ export async function GET(
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
   const expectedState = req.cookies.get(`usc_oauth_state_${platform}`)?.value;
+  const returnToPopup = req.cookies.get(`usc_oauth_return_${platform}`)?.value === "popup";
   if (!code || !state || !expectedState || state !== expectedState) {
-    return fail(origin, platform, "estado OAuth inválido");
+    return fail(origin, platform, "estado OAuth inválido", returnToPopup);
   }
 
   try {
@@ -109,13 +111,15 @@ export async function GET(
     }
 
     const redirect = new URL("/chat", origin);
+    if (returnToPopup) redirect.searchParams.set("popup", "1");
     redirect.searchParams.set("connected", platform);
     const response = NextResponse.redirect(redirect);
     writePlatformSession(response, platform, session);
     response.cookies.delete(`usc_oauth_state_${platform}`);
+    response.cookies.delete(`usc_oauth_return_${platform}`);
     response.cookies.delete(`usc_pkce_${platform}`);
     return response;
   } catch (error) {
-    return fail(origin, platform, error instanceof Error ? error.message : "erro de autenticação");
+    return fail(origin, platform, error instanceof Error ? error.message : "erro de autenticação", returnToPopup);
   }
 }
