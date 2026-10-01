@@ -1,0 +1,798 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+
+type Platform = "twitch" | "kick" | "youtube";
+type Message = {
+  id?: number;
+  platform: Platform;
+  platform_message_id: string;
+  channel_id?: string | null;
+  author_name: string;
+  author_avatar?: string | null;
+  author_color?: string | null;
+  message: string;
+  created_at: string;
+  badges?: unknown[];
+  raw?: any;
+};
+type ResolvedChannel = {
+  platform: Platform;
+  input: string;
+  channelId: string;
+  channelName: string;
+  avatar?: string | null;
+  live?: boolean;
+  liveChatId?: string | null;
+  videoId?: string | null;
+  subscriptionReady?: boolean;
+  note?: string;
+};
+type AuthInfo = Record<Platform, { connected: boolean; configured: boolean; userName?: string; avatar?: string }>;
+type ChannelInputs = Record<Platform, string>;
+type ChannelMap = Partial<Record<Platform, ResolvedChannel>>;
+type ChannelErrors = Partial<Record<Platform, string>>;
+type EmoteDefinition = {
+  code: string;
+  url: string;
+  provider: "bttv" | "ffz" | "7tv";
+  animated?: boolean;
+  zeroWidth?: boolean;
+};
+type YouTubeEmote = {
+  shortcut: string;
+  url: string;
+  custom: boolean;
+};
+
+const platforms: Platform[] = ["twitch", "kick", "youtube"];
+const labels: Record<Platform, string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube" };
+const initials: Record<Platform, string> = { twitch: "T", kick: "K", youtube: "Y" };
+const placeholders: Record<Platform, string> = {
+  twitch: "ex.: gaules",
+  kick: "ex.: xqc",
+  youtube: "ex.: @CazéTV",
+};
+const emptyAuth: AuthInfo = {
+  twitch: { connected: false, configured: false },
+  kick: { connected: false, configured: false },
+  youtube: { connected: false, configured: false },
+};
+const emptyInputs: ChannelInputs = { twitch: "", kick: "", youtube: "" };
+
+function timeLabel(iso: string) {
+  try {
+    return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  } catch {
+    return "";
+  }
+}
+function avatarFallback(name: string) {
+  return name.trim().slice(0, 1).toUpperCase() || "?";
+}
+
+export default function Home() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [filter, setFilter] = useState<"all" | Platform>("all");
+  const [selected, setSelected] = useState<Platform>("twitch");
+  const [auth, setAuth] = useState<AuthInfo>(emptyAuth);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [demo, setDemo] = useState(false);
+  const [dbProvider, setDbProvider] = useState("demo");
+  const [channelInputs, setChannelInputs] = useState<ChannelInputs>(emptyInputs);
+  const [channels, setChannels] = useState<ChannelMap>({});
+  const [channelErrors, setChannelErrors] = useState<ChannelErrors>({});
+  const [thirdPartyEmotes, setThirdPartyEmotes] = useState<Record<string, EmoteDefinition>>({});
+  const [youtubeEmotes, setYoutubeEmotes] = useState<Record<string, YouTubeEmote>>({});
+  const [resolving, setResolving] = useState(false);
+  const [ready, setReady] = useState(false);
+  const lastId = useRef(0);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const autoResolveAfterAuth = useRef(false);
+
+  async function loadAuth() {
+    const res = await fetch("/api/auth/status", { cache: "no-store" });
+    if (res.ok) setAuth(await res.json());
+  }
+
+  function activeParams() {
+    const params = new URLSearchParams();
+    for (const p of platforms) {
+      if (channels[p]?.channelId) params.set(p, channels[p]!.channelId);
+    }
+    return params;
+  }
+
+  async function loadMessages(initial = false) {
+    if (!platforms.some((p) => channels[p]?.channelId)) {
+      setMessages([]);
+      return;
+    }
+    const after = initial ? 0 : lastId.current;
+    const params = activeParams();
+    params.set("after", String(after));
+    params.set("limit", "120");
+    const res = await fetch(`/api/messages?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const json = await res.json();
+    setDemo(!json.dbConfigured);
+    setDbProvider(json.dbProvider || "demo");
+    const incoming: Message[] = json.messages || [];
+    if (!incoming.length) return;
+    setMessages((prev) => {
+      if (initial) return incoming;
+      const known = new Set(prev.map((m) => `${m.platform}:${m.platform_message_id}`));
+      return [
+        ...prev,
+        ...incoming.filter((m) => !known.has(`${m.platform}:${m.platform_message_id}`)),
+      ].slice(-500);
+    });
+    for (const m of incoming) {
+      lastId.current = Math.max(lastId.current, Number(m.id || 0));
+    }
+  }
+
+  async function resolveChannels() {
+    setResolving(true);
+    setChannelErrors({});
+    setError("");
+    try {
+      const requested = Object.fromEntries(platforms.map((p) => [p, channelInputs[p].trim()]));
+      localStorage.setItem("achatado_channel_inputs", JSON.stringify(requested));
+
+      if (!platforms.some((p) => requested[p])) {
+        setChannels({});
+        localStorage.removeItem("achatado_channels");
+        return;
+      }
+
+      const res = await fetch("/api/channels/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: requested }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Não foi possível identificar os canais.");
+
+      const next: ChannelMap = json.channels || {};
+      setChannels(next);
+      setChannelErrors(json.errors || {});
+      localStorage.setItem("achatado_channels", JSON.stringify(next));
+      setMessages([]);
+      lastId.current = 0;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao identificar os canais.");
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  useEffect(() => {
+    try {
+      const savedInputs = localStorage.getItem("achatado_channel_inputs");
+      const savedChannels = localStorage.getItem("achatado_channels");
+      if (savedInputs) setChannelInputs({ ...emptyInputs, ...JSON.parse(savedInputs) });
+      if (savedChannels) setChannels(JSON.parse(savedChannels));
+    } catch {
+      // Ignora dados locais inválidos.
+    }
+
+    const query = new URLSearchParams(window.location.search);
+    const authError = query.get("auth_error");
+    if (authError) setError(authError);
+    if (query.get("connected")) autoResolveAfterAuth.current = true;
+    if (authError || query.get("connected")) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    loadAuth().finally(() => setReady(true));
+  }, []);
+
+  const channelKey = platforms
+    .map((p) => `${p}:${channels[p]?.channelId || ""}:${channels[p]?.liveChatId || ""}`)
+    .join("|");
+
+  useEffect(() => {
+    const channelId = channels.twitch?.channelId;
+    if (!ready || !channelId) {
+      setThirdPartyEmotes({});
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/emotes?channelId=${encodeURIComponent(channelId)}`, { cache: "no-store" })
+      .then(async (res) => res.ok ? res.json() : Promise.reject(new Error("Falha ao carregar emotes")))
+      .then((json) => {
+        if (!cancelled) setThirdPartyEmotes(json.emotes || {});
+      })
+      .catch(() => {
+        if (!cancelled) setThirdPartyEmotes({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, channels.twitch?.channelId]);
+
+  useEffect(() => {
+    const videoId = channels.youtube?.videoId;
+    if (!ready || !videoId) {
+      setYoutubeEmotes({});
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/youtube/emotes?videoId=${encodeURIComponent(videoId)}`, { cache: "no-store" })
+      .then(async (res) => res.ok ? res.json() : Promise.reject(new Error("Falha ao carregar emotes do YouTube")))
+      .then((json) => {
+        if (!cancelled) setYoutubeEmotes(json.emotes || {});
+      })
+      .catch(() => {
+        if (!cancelled) setYoutubeEmotes({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, channels.youtube?.videoId]);
+
+  useEffect(() => {
+    if (!ready) return;
+    setMessages([]);
+    lastId.current = 0;
+    loadMessages(true);
+
+    const tick = window.setInterval(() => loadMessages(false), 1100);
+    const yt = window.setInterval(() => {
+      const channel = channels.youtube;
+      if (!channel?.channelId) return;
+      fetch("/api/youtube/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId: channel.channelId,
+          liveChatId: channel.liveChatId || undefined,
+        }),
+      })
+        .then(async (res) => res.ok ? res.json() : null)
+        .then((json) => {
+          if (!json?.videoId && !json?.liveChatId) return;
+          setChannels((prev) => {
+            const current = prev.youtube;
+            if (!current) return prev;
+            const nextVideoId = json.videoId || current.videoId;
+            const nextLiveChatId = json.liveChatId || current.liveChatId;
+            if (nextVideoId === current.videoId && nextLiveChatId === current.liveChatId) return prev;
+            const next = {
+              ...prev,
+              youtube: {
+                ...current,
+                videoId: nextVideoId,
+                liveChatId: nextLiveChatId,
+                live: true,
+              },
+            };
+            localStorage.setItem("achatado_channels", JSON.stringify(next));
+            return next;
+          });
+        })
+        .catch(() => undefined);
+    }, 2500);
+
+    return () => {
+      clearInterval(tick);
+      clearInterval(yt);
+    };
+  }, [ready, channelKey]);
+
+  useEffect(() => {
+    const channel = channels.twitch;
+    if (!ready || !channel?.channelId || !auth.twitch.connected || !auth.twitch.configured) return;
+
+    const events = new EventSource(
+      `/api/twitch/stream?channelId=${encodeURIComponent(channel.channelId)}`,
+    );
+    events.addEventListener("chat", () => {
+      loadMessages(false);
+    });
+    events.addEventListener("error", () => undefined);
+
+    return () => events.close();
+  }, [ready, channels.twitch?.channelId, auth.twitch.connected, auth.twitch.configured]);
+
+  useEffect(() => {
+    if (!ready || !autoResolveAfterAuth.current) return;
+    if (!platforms.some((p) => channelInputs[p].trim())) return;
+    autoResolveAfterAuth.current = false;
+    resolveChannels();
+  }, [ready, auth.twitch.connected, auth.kick.connected, auth.youtube.connected]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages.length, filter]);
+
+  const visible = useMemo(
+    () => messages.filter((m) => filter === "all" || m.platform === filter),
+    [messages, filter],
+  );
+  const counts = useMemo(() => ({
+    twitch: messages.filter((m) => m.platform === "twitch").length,
+    kick: messages.filter((m) => m.platform === "kick").length,
+    youtube: messages.filter((m) => m.platform === "youtube").length,
+  }), [messages]);
+
+  const activeChannelCount = platforms.filter((p) => channels[p]?.channelId).length;
+
+  async function send(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!text.trim()) return;
+
+    const target = channels[selected];
+    if (!target?.channelId) {
+      setError(`Informe e identifique primeiro o canal da ${labels[selected]}.`);
+      return;
+    }
+    if (!auth[selected]?.configured) {
+      setError(`A API da ${labels[selected]} ainda não foi configurada no servidor.`);
+      return;
+    }
+    if (!auth[selected]?.connected) {
+      window.location.href = `/api/auth/${selected}/start`;
+      return;
+    }
+
+    setSending(true);
+    try {
+      const res = await fetch("/api/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: selected,
+          message: text,
+          channelId: target.channelId,
+          liveChatId: target.liveChatId || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Não foi possível enviar a mensagem.");
+
+      if (selected === "youtube" && (json.liveChatId || json.videoId)) {
+        setChannels((prev) => {
+          const current = prev.youtube;
+          if (!current) return prev;
+          const next = {
+            ...prev,
+            youtube: {
+              ...current,
+              live: true,
+              liveChatId: json.liveChatId || current.liveChatId,
+              videoId: json.videoId || current.videoId,
+            },
+          };
+          localStorage.setItem("achatado_channels", JSON.stringify(next));
+          return next;
+        });
+      }
+
+      setText("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao enviar mensagem.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function logout(platform: Platform) {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform }),
+    });
+    await loadAuth();
+  }
+
+  function updateChannelInput(platform: Platform, value: string) {
+    setChannelInputs((prev) => ({ ...prev, [platform]: value }));
+    setChannelErrors((prev) => ({ ...prev, [platform]: undefined }));
+    if (channels[platform]?.input !== value) {
+      setChannels((prev) => ({ ...prev, [platform]: undefined }));
+    }
+  }
+
+  const maxLength = selected === "youtube" ? 200 : 500;
+  const selectedTarget = channels[selected];
+
+  function renderThirdPartyTwitchText(textValue: string, messageId: string, prefix: string) {
+    if (!Object.keys(thirdPartyEmotes).length) return textValue;
+
+    return textValue.split(/(\s+)/).map((part, index) => {
+      const emote = thirdPartyEmotes[part];
+      if (!emote) return part;
+
+      return (
+        <img
+          className={`chatEmote ${emote.zeroWidth ? "zeroWidth" : ""}`}
+          src={emote.url}
+          alt={part}
+          title={`${part} · ${emote.provider.toUpperCase()}`}
+          loading="lazy"
+          key={`${messageId}-${prefix}-third-${index}`}
+        />
+      );
+    });
+  }
+
+  function renderTwitchMessage(message: Message) {
+    const fragments = message.raw?.message?.fragments;
+    if (!Array.isArray(fragments) || !fragments.length) {
+      return renderThirdPartyTwitchText(message.message, message.platform_message_id, "fallback");
+    }
+
+    return fragments.map((fragment: any, index: number) => {
+      if (fragment?.type === "emote" && fragment?.emote?.id) {
+        const id = encodeURIComponent(String(fragment.emote.id));
+        const formats = Array.isArray(fragment.emote.format) ? fragment.emote.format : [];
+        const format = formats.includes("animated") ? "animated" : "static";
+        const url = `https://static-cdn.jtvnw.net/emoticons/v2/${id}/${format}/dark/2.0`;
+        return (
+          <img
+            className="chatEmote nativeEmote twitchNativeEmote"
+            src={url}
+            alt={fragment.text || "Twitch emote"}
+            title={fragment.text || "Twitch emote"}
+            loading="lazy"
+            key={`${message.platform_message_id}-tw-native-${index}`}
+          />
+        );
+      }
+
+      if (fragment?.type === "gif" && fragment?.gif?.url) {
+        return (
+          <img
+            className="chatEmote nativeEmote twitchNativeEmote"
+            src={String(fragment.gif.url)}
+            alt={fragment.text || "Twitch GIF"}
+            title={fragment.text || "Twitch GIF"}
+            loading="lazy"
+            key={`${message.platform_message_id}-tw-gif-${index}`}
+          />
+        );
+      }
+
+      return (
+        <span key={`${message.platform_message_id}-tw-text-${index}`}>
+          {renderThirdPartyTwitchText(
+            String(fragment?.text || ""),
+            message.platform_message_id,
+            `fragment-${index}`,
+          )}
+        </span>
+      );
+    });
+  }
+
+  function renderKickMessage(message: Message) {
+    const source = typeof message.raw?.content === "string" ? message.raw.content : "";
+    if (!source) return message.message;
+
+    const parts: any[] = [];
+    const regex = /\[emote:([^:\]]+):([^\]]+)\]/g;
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    let index = 0;
+
+    while ((match = regex.exec(source)) !== null) {
+      if (match.index > cursor) {
+        parts.push(source.slice(cursor, match.index));
+      }
+
+      const emoteId = encodeURIComponent(match[1]);
+      const emoteName = match[2];
+      parts.push(
+        <img
+          className="chatEmote nativeEmote kickNativeEmote"
+          src={`https://files.kick.com/emotes/${emoteId}/fullsize`}
+          alt={emoteName}
+          title={emoteName}
+          loading="lazy"
+          key={`${message.platform_message_id}-kick-native-${index++}`}
+        />,
+      );
+      cursor = regex.lastIndex;
+    }
+
+    if (cursor < source.length) parts.push(source.slice(cursor));
+    return parts.length ? parts : message.message;
+  }
+
+  function renderYouTubeMessage(message: Message) {
+    if (!Object.keys(youtubeEmotes).length) return message.message;
+
+    return message.message.split(/(:[^:\s]+:)/g).map((part, index) => {
+      const emote = youtubeEmotes[part];
+      if (!emote) return part;
+
+      return (
+        <img
+          className="chatEmote nativeEmote youtubeNativeEmote"
+          src={emote.url}
+          alt={part}
+          title={part}
+          loading="lazy"
+          key={`${message.platform_message_id}-yt-native-${index}`}
+        />
+      );
+    });
+  }
+
+  function renderMessageText(message: Message) {
+    if (message.platform === "twitch") return renderTwitchMessage(message);
+    if (message.platform === "kick") return renderKickMessage(message);
+    if (message.platform === "youtube") return renderYouTubeMessage(message);
+    return message.message;
+  }
+
+  return (
+    <main className="shell">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brandMark"><span>T</span><span>K</span><span>Y</span></div>
+          <div>
+            <h1>aCHATado</h1>
+            <p>Twitch + Kick + YouTube em um só chat</p>
+          </div>
+        </div>
+        <div className="livePill">
+          <span className="liveDot" />
+          {activeChannelCount
+            ? `${activeChannelCount} CANAL${activeChannelCount > 1 ? "IS" : ""}`
+            : "CONFIGURAR"}
+        </div>
+      </header>
+
+      <section className="channelSetup">
+        <div className="channelSetupHead">
+          <div>
+            <strong>Canais que serão mesclados</strong>
+            <span>Digite o username, @handle ou URL. O aCHATado identifica o canal e a live automaticamente.</span>
+          </div>
+          <button className="mergeButton" onClick={resolveChannels} disabled={resolving}>
+            {resolving ? "Identificando…" : "Identificar e mesclar"}
+          </button>
+        </div>
+
+        <div className="channelGrid">
+          {platforms.map((p) => {
+            const channel = channels[p];
+            const platformError = channelErrors[p];
+            return (
+              <div className={`channelCard ${p}`} key={p}>
+                <div className="channelCardTitle">
+                  <span className={`platformIcon ${p}`}>{initials[p]}</span>
+                  <strong>{labels[p]}</strong>
+                </div>
+                <input
+                  value={channelInputs[p]}
+                  onChange={(e) => updateChannelInput(p, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") resolveChannels();
+                  }}
+                  placeholder={placeholders[p]}
+                  aria-label={`Canal da ${labels[p]}`}
+                />
+
+                {channel ? (
+                  <div className="channelResolved">
+                    <span className={`resolveDot ${channel.subscriptionReady === false ? "warning" : "ok"}`} />
+                    <div>
+                      <b>{channel.channelName}</b>
+                      <small>{channel.note || "Canal identificado."}</small>
+                    </div>
+                  </div>
+                ) : platformError ? (
+                  <div className="channelResolved error">
+                    <span className="resolveDot bad" />
+                    <div>
+                      <b>Não integrado</b>
+                      <small>{platformError}</small>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="channelHint">Nenhum canal selecionado.</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {demo && (
+        <div className="demoBanner">
+          <strong>Modo demonstração.</strong> O banco de dados ainda não está configurado.
+        </div>
+      )}
+
+      <section className="workspace">
+        <aside className="sidebar">
+          <div className="sidebarTitle">EXIBIR MENSAGENS</div>
+          <button
+            className={`filterButton ${filter === "all" ? "active" : ""}`}
+            onClick={() => setFilter("all")}
+          >
+            <span className="allIcon">∞</span><span>Todas</span><b>{messages.length}</b>
+          </button>
+
+          {platforms.map((p) => (
+            <button
+              key={p}
+              className={`filterButton ${filter === p ? "active" : ""}`}
+              onClick={() => setFilter(p)}
+            >
+              <span className={`platformIcon ${p}`}>{initials[p]}</span>
+              <span>{labels[p]}</span>
+              <b>{counts[p]}</b>
+            </button>
+          ))}
+
+          <div className="sidebarTitle accountsTitle">SUAS CONTAS</div>
+          {platforms.map((p) => (
+            <div className="accountRow" key={p}>
+              <span className={`platformIcon ${p}`}>{initials[p]}</span>
+              <div className="accountText">
+                <strong>{labels[p]}</strong>
+                <small>
+                  {!auth[p].configured
+                    ? "API não configurada"
+                    : auth[p].connected
+                      ? auth[p].userName || "Conectado"
+                      : "Não conectado"}
+                </small>
+              </div>
+
+              {!auth[p].configured ? (
+                <span className="tinyButton disabled">Indisponível</span>
+              ) : auth[p].connected ? (
+                <button className="tinyButton" onClick={() => logout(p)}>Sair</button>
+              ) : (
+                <a className="tinyButton" href={`/api/auth/${p}/start`}>Conectar</a>
+              )}
+            </div>
+          ))}
+
+          <div className="dbStatus">
+            Banco: <b>
+              {dbProvider === "render-postgres"
+                ? "Render PostgreSQL"
+                : dbProvider === "supabase"
+                  ? "Supabase"
+                  : "demonstração"}
+            </b>
+          </div>
+        </aside>
+
+        <section className="chatPanel">
+          <div className="chatHeader">
+            <div>
+              <strong>{filter === "all" ? "Chat unificado" : `Chat da ${labels[filter]}`}</strong>
+              <span>{visible.length} mensagens carregadas</span>
+            </div>
+            <div className="status">
+              <span />
+              {activeChannelCount ? "sincronizando" : "aguardando canais"}
+            </div>
+          </div>
+
+          <div className="messageList">
+            {visible.map((m) => (
+              <article className="message" key={`${m.platform}-${m.platform_message_id}`}>
+                <div className={`avatarRing ${m.platform}`}>
+                  {m.author_avatar
+                    ? <img src={m.author_avatar} alt="" />
+                    : <span>{avatarFallback(m.author_name)}</span>}
+                  <span className={`miniPlatform ${m.platform}`}>{initials[m.platform]}</span>
+                </div>
+                <div className="messageBody">
+                  <div className="meta">
+                    <strong style={m.author_color ? { color: m.author_color } : undefined}>
+                      {m.author_name}
+                    </strong>
+                    <span className={`platformLabel ${m.platform}`}>{labels[m.platform]}</span>
+                    <time>{timeLabel(m.created_at)}</time>
+                  </div>
+                  <p className="chatText">{renderMessageText(m)}</p>
+                </div>
+              </article>
+            ))}
+
+            {!activeChannelCount && (
+              <div className="emptyState">
+                Informe ao menos um canal acima para começar a mesclar os chats.
+              </div>
+            )}
+            {activeChannelCount > 0 && !visible.length && (
+              <div className="emptyState">
+                Aguardando mensagens dos canais selecionados…
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <form className="composer" onSubmit={send}>
+            <div className="sendVia">
+              <span>Enviar pela</span>
+              <div className="platformSwitch">
+                {platforms.map((p) => (
+                  <button
+                    type="button"
+                    key={p}
+                    onClick={() => {
+                      setSelected(p);
+                      setError("");
+                    }}
+                    className={`${selected === p ? "selected" : ""} ${p}`}
+                  >
+                    <span>{initials[p]}</span>{labels[p]}
+                    <i className={auth[p]?.connected ? "connected" : ""} />
+                  </button>
+                ))}
+              </div>
+              {selectedTarget && <span className="sendingTo">→ {selectedTarget.channelName}</span>}
+            </div>
+
+            {!selectedTarget ? (
+              <div className="connectCallout">
+                Selecione o canal da {labels[selected]} acima.
+              </div>
+            ) : !auth[selected]?.configured ? (
+              <div className={`connectCallout ${selected}`}>
+                A API da {labels[selected]} precisa ser configurada no servidor.
+              </div>
+            ) : !auth[selected]?.connected ? (
+              <a className={`connectCallout ${selected}`} href={`/api/auth/${selected}/start`}>
+                Conectar {labels[selected]} para enviar mensagens como você
+              </a>
+            ) : (
+              <div className="inputRow">
+                <div className="textWrap">
+                  <textarea
+                    value={text}
+                    onChange={(e) => setText(e.target.value.slice(0, maxLength))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        e.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    placeholder={`Mensagem como ${auth[selected]?.userName || "você"} em ${selectedTarget.channelName}...`}
+                    rows={1}
+                    maxLength={maxLength}
+                  />
+                  <span className="counter">{[...text].length}/{maxLength}</span>
+                </div>
+                <button
+                  className={`sendButton ${selected}`}
+                  disabled={sending || !text.trim()}
+                >
+                  {sending ? "Enviando…" : "Enviar"}
+                </button>
+              </div>
+            )}
+
+            {error && <div className="errorBox">{error}</div>}
+          </form>
+        </section>
+      </section>
+
+      <footer className="siteFooter">
+        <span>aCHATado</span>
+        <nav aria-label="Links legais">
+          <a href="/privacy">Política de Privacidade</a>
+          <a href="/terms">Termos de Serviço</a>
+        </nav>
+      </footer>
+    </main>
+  );
+}
