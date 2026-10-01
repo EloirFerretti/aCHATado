@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getState, insertMessage, setState } from "@/lib/store";
-import { findActiveYouTubeLive, getYouTubeLiveChatId } from "@/lib/youtube";
+import { findActiveYouTubeLive, getYouTubeLiveChatId, isYouTubeQuotaError } from "@/lib/youtube";
 
 export const dynamic = "force-dynamic";
 
@@ -22,33 +22,61 @@ export async function POST(req: NextRequest) {
         nextResolveAt?: number;
       }>(discoveryKey);
 
-      const shouldResolve =
-        !discovery?.nextResolveAt ||
-        Date.now() >= discovery.nextResolveAt ||
-        !discovery.liveChatId;
-
-      if (shouldResolve) {
-        const live = await findActiveYouTubeLive(channelId);
-        liveChatId = live?.liveChatId || "";
-        videoId = live?.videoId || "";
-
+      if (!discovery && liveChatId) {
         await setState(discoveryKey, {
-          liveChatId: liveChatId || null,
+          liveChatId,
           videoId: videoId || null,
-          nextResolveAt: Date.now() + 45_000,
+          nextResolveAt: Date.now() + 30 * 60_000,
         });
-
-        if (!liveChatId) {
-          return NextResponse.json({
-            skipped: true,
-            offline: true,
-            retryAfterMs: 45_000,
-          });
-        }
       } else {
-        // O estado persistido no servidor tem prioridade sobre valores antigos do navegador.
-        liveChatId = discovery.liveChatId || "";
-        videoId = discovery.videoId || videoId;
+        const shouldResolve =
+          !discovery?.nextResolveAt ||
+          Date.now() >= discovery.nextResolveAt ||
+          !discovery.liveChatId;
+
+        if (shouldResolve) {
+          try {
+            const live = await findActiveYouTubeLive(channelId);
+            liveChatId = live?.liveChatId || "";
+            videoId = live?.videoId || "";
+
+            await setState(discoveryKey, {
+              liveChatId: liveChatId || null,
+              videoId: videoId || null,
+              nextResolveAt: Date.now() + (liveChatId ? 30 * 60_000 : 2 * 60_000),
+            });
+
+            if (!liveChatId) {
+              return NextResponse.json({
+                skipped: true,
+                offline: true,
+                retryAfterMs: 2 * 60_000,
+              });
+            }
+          } catch (error) {
+            if (isYouTubeQuotaError(error)) {
+              await setState(discoveryKey, {
+                liveChatId: liveChatId || discovery?.liveChatId || null,
+                videoId: videoId || discovery?.videoId || null,
+                nextResolveAt: Date.now() + 30 * 60_000,
+              });
+              return NextResponse.json(
+                {
+                  skipped: true,
+                  quotaExceeded: true,
+                  retryAfterMs: 30 * 60_000,
+                  error: "Cota da API do YouTube temporariamente esgotada.",
+                },
+                { status: 429 },
+              );
+            }
+            throw error;
+          }
+        } else {
+          // O estado persistido no servidor tem prioridade sobre valores antigos do navegador.
+          liveChatId = discovery.liveChatId || liveChatId;
+          videoId = discovery.videoId || videoId;
+        }
       }
     }
 
@@ -70,11 +98,35 @@ export async function POST(req: NextRequest) {
     const res = await fetch(url, { cache: "no-store" });
     const json = await res.json();
     if (!res.ok) {
+      const reason = json?.error?.errors?.[0]?.reason;
+      if (reason === "quotaExceeded") {
+        await setState(stateKey, {
+          nextPageToken: state?.nextPageToken,
+          nextPollAt: Date.now() + 30 * 60_000,
+        });
+        if (channelId) {
+          await setState(`youtube-channel:${channelId}`, {
+            liveChatId: liveChatId || null,
+            videoId: videoId || null,
+            nextResolveAt: Date.now() + 30 * 60_000,
+          });
+        }
+        return NextResponse.json(
+          {
+            skipped: true,
+            quotaExceeded: true,
+            retryAfterMs: 30 * 60_000,
+            error: "Cota da API do YouTube temporariamente esgotada.",
+          },
+          { status: 429 },
+        );
+      }
+
       if (channelId) {
         await setState(`youtube-channel:${channelId}`, {
           liveChatId: null,
           videoId: videoId || null,
-          nextResolveAt: Date.now() + 60_000,
+          nextResolveAt: Date.now() + 2 * 60_000,
         });
       }
       throw new Error(json?.error?.message || `YouTube respondeu ${res.status}`);
@@ -106,7 +158,8 @@ export async function POST(req: NextRequest) {
       inserted++;
     }
 
-    const interval = Math.max(Number(json.pollingIntervalMillis || 5000), 1000);
+    // Mantém o consumo diário abaixo do limite padrão mesmo em lives longas.
+    const interval = Math.max(Number(json.pollingIntervalMillis || 5000), 10_000);
     await setState(stateKey, {
       nextPageToken: json.nextPageToken,
       nextPollAt: Date.now() + interval,
