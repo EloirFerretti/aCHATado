@@ -14,6 +14,7 @@ type Message = {
   message: string;
   created_at: string;
   badges?: unknown[];
+  raw?: any;
 };
 type ResolvedChannel = {
   platform: Platform;
@@ -37,6 +38,11 @@ type EmoteDefinition = {
   provider: "bttv" | "ffz" | "7tv";
   animated?: boolean;
   zeroWidth?: boolean;
+};
+type YouTubeEmote = {
+  shortcut: string;
+  url: string;
+  custom: boolean;
 };
 
 const platforms: Platform[] = ["twitch", "kick", "youtube"];
@@ -79,6 +85,7 @@ export default function Home() {
   const [channels, setChannels] = useState<ChannelMap>({});
   const [channelErrors, setChannelErrors] = useState<ChannelErrors>({});
   const [thirdPartyEmotes, setThirdPartyEmotes] = useState<Record<string, EmoteDefinition>>({});
+  const [youtubeEmotes, setYoutubeEmotes] = useState<Record<string, YouTubeEmote>>({});
   const [resolving, setResolving] = useState(false);
   const [ready, setReady] = useState(false);
   const lastId = useRef(0);
@@ -210,6 +217,28 @@ export default function Home() {
   }, [ready, channels.twitch?.channelId]);
 
   useEffect(() => {
+    const videoId = channels.youtube?.videoId;
+    if (!ready || !videoId) {
+      setYoutubeEmotes({});
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/youtube/emotes?videoId=${encodeURIComponent(videoId)}`, { cache: "no-store" })
+      .then(async (res) => res.ok ? res.json() : Promise.reject(new Error("Falha ao carregar emotes do YouTube")))
+      .then((json) => {
+        if (!cancelled) setYoutubeEmotes(json.emotes || {});
+      })
+      .catch(() => {
+        if (!cancelled) setYoutubeEmotes({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, channels.youtube?.videoId]);
+
+  useEffect(() => {
     if (!ready) return;
     setMessages([]);
     lastId.current = 0;
@@ -226,7 +255,30 @@ export default function Home() {
           channelId: channel.channelId,
           liveChatId: channel.liveChatId || undefined,
         }),
-      }).catch(() => undefined);
+      })
+        .then(async (res) => res.ok ? res.json() : null)
+        .then((json) => {
+          if (!json?.videoId && !json?.liveChatId) return;
+          setChannels((prev) => {
+            const current = prev.youtube;
+            if (!current) return prev;
+            const nextVideoId = json.videoId || current.videoId;
+            const nextLiveChatId = json.liveChatId || current.liveChatId;
+            if (nextVideoId === current.videoId && nextLiveChatId === current.liveChatId) return prev;
+            const next = {
+              ...prev,
+              youtube: {
+                ...current,
+                videoId: nextVideoId,
+                liveChatId: nextLiveChatId,
+                live: true,
+              },
+            };
+            localStorage.setItem("achatado_channels", JSON.stringify(next));
+            return next;
+          });
+        })
+        .catch(() => undefined);
     }, 2500);
 
     return () => {
@@ -334,12 +386,10 @@ export default function Home() {
   const maxLength = selected === "youtube" ? 200 : 500;
   const selectedTarget = channels[selected];
 
-  function renderMessageText(message: Message) {
-    if (message.platform !== "twitch" || !Object.keys(thirdPartyEmotes).length) {
-      return message.message;
-    }
+  function renderThirdPartyTwitchText(textValue: string, messageId: string, prefix: string) {
+    if (!Object.keys(thirdPartyEmotes).length) return textValue;
 
-    return message.message.split(/(\s+)/).map((part, index) => {
+    return textValue.split(/(\s+)/).map((part, index) => {
       const emote = thirdPartyEmotes[part];
       if (!emote) return part;
 
@@ -350,10 +400,120 @@ export default function Home() {
           alt={part}
           title={`${part} · ${emote.provider.toUpperCase()}`}
           loading="lazy"
-          key={`${message.platform_message_id}-emote-${index}`}
+          key={`${messageId}-${prefix}-third-${index}`}
         />
       );
     });
+  }
+
+  function renderTwitchMessage(message: Message) {
+    const fragments = message.raw?.message?.fragments;
+    if (!Array.isArray(fragments) || !fragments.length) {
+      return renderThirdPartyTwitchText(message.message, message.platform_message_id, "fallback");
+    }
+
+    return fragments.map((fragment: any, index: number) => {
+      if (fragment?.type === "emote" && fragment?.emote?.id) {
+        const id = encodeURIComponent(String(fragment.emote.id));
+        const formats = Array.isArray(fragment.emote.format) ? fragment.emote.format : [];
+        const format = formats.includes("animated") ? "animated" : "static";
+        const url = `https://static-cdn.jtvnw.net/emoticons/v2/${id}/${format}/dark/2.0`;
+        return (
+          <img
+            className="chatEmote nativeEmote twitchNativeEmote"
+            src={url}
+            alt={fragment.text || "Twitch emote"}
+            title={fragment.text || "Twitch emote"}
+            loading="lazy"
+            key={`${message.platform_message_id}-tw-native-${index}`}
+          />
+        );
+      }
+
+      if (fragment?.type === "gif" && fragment?.gif?.url) {
+        return (
+          <img
+            className="chatEmote nativeEmote twitchNativeEmote"
+            src={String(fragment.gif.url)}
+            alt={fragment.text || "Twitch GIF"}
+            title={fragment.text || "Twitch GIF"}
+            loading="lazy"
+            key={`${message.platform_message_id}-tw-gif-${index}`}
+          />
+        );
+      }
+
+      return (
+        <span key={`${message.platform_message_id}-tw-text-${index}`}>
+          {renderThirdPartyTwitchText(
+            String(fragment?.text || ""),
+            message.platform_message_id,
+            `fragment-${index}`,
+          )}
+        </span>
+      );
+    });
+  }
+
+  function renderKickMessage(message: Message) {
+    const source = typeof message.raw?.content === "string" ? message.raw.content : "";
+    if (!source) return message.message;
+
+    const parts: any[] = [];
+    const regex = /\[emote:([^:\]]+):([^\]]+)\]/g;
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    let index = 0;
+
+    while ((match = regex.exec(source)) !== null) {
+      if (match.index > cursor) {
+        parts.push(source.slice(cursor, match.index));
+      }
+
+      const emoteId = encodeURIComponent(match[1]);
+      const emoteName = match[2];
+      parts.push(
+        <img
+          className="chatEmote nativeEmote kickNativeEmote"
+          src={`https://files.kick.com/emotes/${emoteId}/fullsize`}
+          alt={emoteName}
+          title={emoteName}
+          loading="lazy"
+          key={`${message.platform_message_id}-kick-native-${index++}`}
+        />,
+      );
+      cursor = regex.lastIndex;
+    }
+
+    if (cursor < source.length) parts.push(source.slice(cursor));
+    return parts.length ? parts : message.message;
+  }
+
+  function renderYouTubeMessage(message: Message) {
+    if (!Object.keys(youtubeEmotes).length) return message.message;
+
+    return message.message.split(/(:[^:\s]+:)/g).map((part, index) => {
+      const emote = youtubeEmotes[part];
+      if (!emote) return part;
+
+      return (
+        <img
+          className="chatEmote nativeEmote youtubeNativeEmote"
+          src={emote.url}
+          alt={part}
+          title={part}
+          loading="lazy"
+          key={`${message.platform_message_id}-yt-native-${index}`}
+        />
+      );
+    });
+  }
+
+  function renderMessageText(message: Message) {
+    if (message.platform === "twitch") return renderTwitchMessage(message);
+    if (message.platform === "kick") return renderKickMessage(message);
+    if (message.platform === "youtube") return renderYouTubeMessage(message);
+    return message.message;
   }
 
   return (
