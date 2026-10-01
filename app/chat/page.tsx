@@ -889,7 +889,7 @@ export default function Home() {
         <div className="livePill">
           <span className="liveDot" />
           {activeChannelCount
-            ? `${activeChannelCount} CANAL${activeChannelCount > 1 ? "IS" : ""}`
+            ? `${activeChannelCount} ${activeChannelCount === 1 ? "CANAL" : "CANAIS"}`
             : "CONFIGURAR"}
         </div>
       </header>}
