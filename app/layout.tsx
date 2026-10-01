@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Unified Stream Chat",
+  title: "aCHATado",
   description: "Chat unificado de Twitch, Kick e YouTube",
 };
 
