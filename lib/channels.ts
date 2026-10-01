@@ -1,6 +1,7 @@
 import { getKickAppToken, getTwitchAppToken } from "@/lib/app-tokens";
 import { resolveYouTubeChannel } from "@/lib/youtube";
 import type { PlatformSession, ResolvedChannel } from "@/lib/types";
+import { getState, setState } from "@/lib/store";
 
 function cleanHandle(input: string, platform: "twitch" | "kick") {
   const value = input.trim();
@@ -64,30 +65,47 @@ export async function resolveKickChannel(input: string): Promise<ResolvedChannel
 
   let subscriptionReady = false;
   let note = "Canal identificado.";
-  const sub = await fetch("https://api.kick.com/public/v1/events/subscriptions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      broadcaster_user_id: Number(channel.broadcaster_user_id),
-      events: [{ name: "chat.message.sent", version: 1 }],
-      method: "webhook",
-    }),
-  });
-  const subJson = await responseJson(sub);
-  const first = subJson?.data?.[0];
-  if (sub.ok && !first?.error) {
+  const subscriptionKey = `kick-subscription:${channel.broadcaster_user_id}`;
+  const cachedSubscription = await getState<{ ready?: boolean; checkedAt?: number }>(subscriptionKey);
+  const cacheFresh = Boolean(
+    cachedSubscription?.ready &&
+    cachedSubscription?.checkedAt &&
+    Date.now() - cachedSubscription.checkedAt < 12 * 60 * 60 * 1000,
+  );
+
+  if (cacheFresh) {
     subscriptionReady = true;
     note = "Chat da Kick integrado.";
   } else {
-    const message = first?.error || subJson?.message || `Não foi possível assinar o chat da Kick (${sub.status}).`;
-    if (/already|duplicate|exists/i.test(message)) {
+    const sub = await fetch("https://api.kick.com/public/v1/events/subscriptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        broadcaster_user_id: Number(channel.broadcaster_user_id),
+        events: [{ name: "chat.message.sent", version: 1 }],
+        method: "webhook",
+      }),
+    });
+    const subJson = await responseJson(sub);
+    const first = subJson?.data?.[0];
+    if (sub.ok && !first?.error) {
       subscriptionReady = true;
-      note = "Chat da Kick já estava integrado.";
+      note = "Chat da Kick integrado.";
     } else {
-      note = message;
+      const message = first?.error || subJson?.message || `Não foi possível assinar o chat da Kick (${sub.status}).`;
+      if (/already|duplicate|exists/i.test(message)) {
+        subscriptionReady = true;
+        note = "Chat da Kick já estava integrado.";
+      } else {
+        note = message;
+      }
+    }
+
+    if (subscriptionReady) {
+      await setState(subscriptionKey, { ready: true, checkedAt: Date.now() });
     }
   }
 
