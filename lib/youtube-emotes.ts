@@ -205,6 +205,15 @@ function collectEmojiObjects(
   }
 }
 
+function pickerCategoryTitle(category: any) {
+  const title =
+    category?.title?.simpleText ||
+    category?.title?.runs?.map((run: any) => run?.text || "").join("") ||
+    category?.tooltip ||
+    "";
+  return String(title).trim().toLowerCase();
+}
+
 function collectPickerCategories(
   value: unknown,
   target: Map<string, YouTubeEmoteCategory>,
@@ -221,6 +230,7 @@ function collectPickerCategories(
   const category = object.emojiPickerCategoryRenderer;
   if (category && typeof category === "object") {
     const type = String(category.categoryType || "");
+    const title = pickerCategoryTitle(category);
     const ids = Array.isArray(category.emojiIds) ? category.emojiIds : [];
 
     if (type === "CATEGORY_TYPE_UNICODE") {
@@ -228,12 +238,15 @@ function collectPickerCategories(
         if (typeof id === "string" && id) unicode.add(id);
       }
     } else {
-      const mapped: YouTubeEmoteCategory | null =
-        type === "CATEGORY_TYPE_GLOBAL"
-          ? "official"
-          : type === "CATEGORY_TYPE_CUSTOM"
-            ? "channel"
-            : null;
+      let mapped: YouTubeEmoteCategory | null = null;
+
+      // Só a categoria visual chamada "YouTube" é tratada como oficial.
+      // Outros CATEGORY_TYPE_GLOBAL (Gaming, Pride, legados etc.) não entram.
+      if (type === "CATEGORY_TYPE_GLOBAL" && title === "youtube") {
+        mapped = "official";
+      } else if (type === "CATEGORY_TYPE_CUSTOM") {
+        mapped = "channel";
+      }
 
       if (mapped) {
         for (const id of ids) {
@@ -420,8 +433,8 @@ export async function getYouTubeLiveEmotes(
   const categoryById = new Map<string, YouTubeEmoteCategory>();
   const youtubeUnicodeEmojiIds = new Set<string>();
 
-  // Semeia sempre o conjunto global oficial. A coleta da página da live é
-  // apenas um complemento para emotes específicos do canal e aliases novos.
+  // Semeia somente a categoria visual "YouTube" do seletor oficial.
+  // A coleta dinâmica complementa apenas com a mesma categoria e emotes do canal.
   for (const emote of youtubeGlobalEmotes) {
     emotes[emote.shortcut] = {
       id: emote.id,
@@ -554,29 +567,30 @@ export async function getYouTubeLiveEmotes(
   return emotes;
 }
 
+const youtubeCategoryIds = new Set(
+  youtubeGlobalEmotes.map((emote) => emote.id),
+);
+const youtubeCategoryShortcuts = new Set(
+  youtubeGlobalEmotes.map((emote) => emote.shortcut),
+);
+
 function inferYouTubePickerCategory(
   emote: YouTubeEmote,
-): YouTubeEmoteCategory {
+): YouTubeEmoteCategory | null {
   if (emote.category) return emote.category;
 
-  const id = String(emote.id || "");
-  const shortcut = String(emote.shortcut || "").toLowerCase();
-
-  // O conjunto global oficial do YouTube usa o categoryId abaixo no picker
-  // web. O payload pode omitir categoryType, mas preservar esse prefixo.
-  if (id.startsWith("UCkszU2WH9gy1mb0dV-11UJg/")) return "official";
-
-  // Fallback defensivo para emotes globais atuais/legados do YouTube quando a
-  // página anônima traz apenas os objetos emoji e não o emojiPickerRenderer.
+  // Fallback estrito: somente itens do catálogo da categoria visual "YouTube".
   if (
-    /^:(?:face|hand|body|eyes|person|cat|goat|trophy|text|glasses|heart|party|people|object)-/.test(shortcut) ||
-    /^:(?:yt|buffering|oops|chillwcat|chillwdog|dothefive|elbowbump|elbowcough|goodvibes|hydrate):$/.test(shortcut)
+    (emote.id && youtubeCategoryIds.has(emote.id)) ||
+    youtubeCategoryShortcuts.has(emote.shortcut)
   ) {
     return "official";
   }
 
-  if (!emote.custom) return "official";
-  return "channel";
+  // Emotes customizados continuam aparecendo na seção do canal.
+  if (emote.custom) return "channel";
+
+  return null;
 }
 
 export async function getYouTubePickerEmotes(
@@ -591,8 +605,10 @@ export async function getYouTubePickerEmotes(
     if (unique.has(key)) continue;
 
     const emote = { ...source };
-    emote.category = inferYouTubePickerCategory(emote);
-    emote.custom = emote.category === "channel";
+    const category = inferYouTubePickerCategory(emote);
+    if (!category) continue;
+    emote.category = category;
+    emote.custom = category === "channel";
     unique.set(key, emote);
   }
 
