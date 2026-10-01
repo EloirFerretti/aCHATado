@@ -38,6 +38,6 @@ export async function refreshPlatformSession(platform: Platform, session: Platfo
     accessToken: json.access_token,
     refreshToken: json.refresh_token || session.refreshToken,
     expiresAt: Date.now() + Number(json.expires_in || 3600) * 1000,
-    scope: typeof json.scope === "string" ? json.scope.split(/\\s+/).filter(Boolean) : session.scope,
+    scope: typeof json.scope === "string" ? json.scope.split(/\s+/).filter(Boolean) : session.scope,
   } satisfies PlatformSession;
 }
