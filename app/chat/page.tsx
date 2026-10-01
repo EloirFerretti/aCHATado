@@ -676,15 +676,7 @@ export default function Home() {
     if (!codes.length) return null;
 
     const escaped = codes.map((code) =>
-      code.replace(/[.*+?^\${}()|[\]\\]/g, "\\  const filteredPickerEmotes = useMemo(() => {
-    const query = pickerSearch.trim().toLowerCase();
-    return pickerEmotes.filter((emote) => {
-      if (pickerProvider !== "all" && emote.provider !== pickerProvider) return false;
-      if (query && !emote.code.toLowerCase().includes(query)) return false;
-      return true;
-    });
-  }, [pickerEmotes, pickerProvider, pickerSearch]);
-"),
+      code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
     );
     return new RegExp(`(${escaped.join("|")})`, "g");
   }, [youtubeEmotes]);
