@@ -62,6 +62,7 @@ export async function GET(
       accessToken: token.access_token,
       refreshToken: token.refresh_token,
       expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
+      scope: typeof token.scope === "string" ? token.scope.split(/\\s+/).filter(Boolean) : undefined,
     };
 
     if (platform === "twitch") {
@@ -88,6 +89,10 @@ export async function GET(
       session.userName = json.data[0].name;
       session.avatar = json.data[0].profile_picture;
     } else {
+      const requiredScope = "https://www.googleapis.com/auth/youtube.force-ssl";
+      if (session.scope?.length && !session.scope.includes(requiredScope)) {
+        throw new Error("YouTube não concedeu o escopo necessário youtube.force-ssl. Revogue o acesso do aCHATado na Conta Google e conecte novamente.");
+      }
       const me = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", {
         headers: { Authorization: `Bearer ${session.accessToken}` },
         cache: "no-store",
