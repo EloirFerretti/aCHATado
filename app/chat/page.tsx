@@ -1055,6 +1055,9 @@ export default function Home() {
   function kickBadgeAsset(type: string) {
     const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
     const assets: Record<string, string> = {
+      broadcaster: "/badges/kick/broadcaster.svg",
+      host: "/badges/kick/broadcaster.svg",
+      streamer: "/badges/kick/broadcaster.svg",
       moderator: "/badges/kick/mod.svg",
       mod: "/badges/kick/mod.svg",
       og: "/badges/kick/ogog.svg",
@@ -1069,7 +1072,6 @@ export default function Home() {
   function kickBadgeGlyph(type: string) {
     const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
     const glyphs: Record<string, string> = {
-      broadcaster: "C",
       subscriber: "S",
       founder: "F",
       sub_gifter: "G",
