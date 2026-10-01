@@ -68,7 +68,11 @@ export async function GET(req: NextRequest) {
 
       if (videoId) {
         const native = await getYouTubeLiveEmotes(videoId);
+        const seenNative = new Set<string>();
         for (const emote of Object.values(native)) {
+          const key = emote.id || emote.url;
+          if (seenNative.has(key)) continue;
+          seenNative.add(key);
           emotes.push({
             id: emote.id,
             code: emote.shortcut,
