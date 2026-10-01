@@ -118,6 +118,7 @@ async function markEnded(entry: StreamEntry) {
   entry.status = "ended";
   entry.stopped = true;
   if (entry.retryTimer) clearTimeout(entry.retryTimer);
+  if (entry.idleTimer) clearInterval(entry.idleTimer);
   try { entry.call?.cancel(); } catch { /* noop */ }
   await setState(`youtube-channel:${entry.channelId}`, {
     liveChatId: null,
