@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readPlatformSession, writePlatformSession } from "@/lib/session";
 import { refreshPlatformSession } from "@/lib/platform-auth";
-import { findActiveYouTubeLive } from "@/lib/youtube";
+import { findActiveYouTubeLive, isYouTubeQuotaError } from "@/lib/youtube";
+import { getState, setState } from "@/lib/store";
 import type { Platform } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -63,11 +64,36 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({ broadcaster_user_id: Number(channelId), content: message, type: "user" }),
       });
     } else {
-      // Nunca confia no liveChatId salvo no navegador para enviar. Uma live pode ter
-      // terminado, outra pode ter começado ou o canal pode ter mais de uma transmissão.
-      const live = await findActiveYouTubeLive(channelId);
-      liveChatId = live?.liveChatId || "";
-      youtubeVideoId = live?.videoId || "";
+      const stateKey = `youtube-channel:${channelId}`;
+      const cached = await getState<{
+        liveChatId?: string | null;
+        videoId?: string | null;
+        nextResolveAt?: number;
+      }>(stateKey);
+
+      if (cached?.liveChatId && cached?.videoId && cached.nextResolveAt && Date.now() < cached.nextResolveAt) {
+        liveChatId = cached.liveChatId;
+        youtubeVideoId = cached.videoId;
+      } else {
+        try {
+          const live = await findActiveYouTubeLive(channelId);
+          liveChatId = live?.liveChatId || "";
+          youtubeVideoId = live?.videoId || "";
+          await setState(stateKey, {
+            liveChatId: liveChatId || null,
+            videoId: youtubeVideoId || null,
+            nextResolveAt: Date.now() + (liveChatId ? 30 * 60_000 : 2 * 60_000),
+          });
+        } catch (error) {
+          if (isYouTubeQuotaError(error)) {
+            return NextResponse.json(
+              { error: "A cota da API do YouTube está temporariamente esgotada. O envio voltará automaticamente quando a cota for liberada." },
+              { status: 429 },
+            );
+          }
+          throw error;
+        }
+      }
 
       if (!liveChatId || !youtubeVideoId) {
         return NextResponse.json(
