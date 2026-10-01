@@ -374,9 +374,8 @@ export default function Home() {
     const events = new EventSource(
       `/api/twitch/stream?channelId=${encodeURIComponent(channel.channelId)}`,
     );
-    events.addEventListener("chat", () => {
-      loadMessages(false);
-    });
+    // A conexão abaixo mantém o EventSub da Twitch ativo. As mensagens em si
+    // chegam pelo /api/events, sem uma consulta extra ao banco por mensagem.
     events.addEventListener("error", () => undefined);
 
     return () => events.close();
