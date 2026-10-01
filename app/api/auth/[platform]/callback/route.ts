@@ -62,7 +62,7 @@ export async function GET(
       accessToken: token.access_token,
       refreshToken: token.refresh_token,
       expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
-      scope: typeof token.scope === "string" ? token.scope.split(/\\s+/).filter(Boolean) : undefined,
+      scope: typeof token.scope === "string" ? token.scope.split(/\s+/).filter(Boolean) : undefined,
     };
 
     if (platform === "twitch") {
