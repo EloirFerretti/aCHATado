@@ -304,6 +304,7 @@ async function fetchYouTubeHtml(url: string) {
     headers: {
       Accept: "text/html,application/xhtml+xml",
       "Accept-Language": "en-US,en;q=0.9",
+      Cookie: "CONSENT=YES+cb; SOCS=CAI; PREF=hl=en&gl=US",
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
@@ -343,6 +344,7 @@ async function fetchContinuationJson(
         "Content-Type": "application/json",
         Origin: "https://www.youtube.com",
         Referer: "https://www.youtube.com/",
+        Cookie: "CONSENT=YES+cb; SOCS=CAI; PREF=hl=en&gl=US",
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
           "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
@@ -427,23 +429,33 @@ export async function getYouTubeLiveEmotes(
     collectPickerCategories(watchInitialData, categoryById, youtubeUnicodeEmojiIds);
   }
 
-  // A página pop-out direta pode conter os emojis globais em algumas variantes.
+  // O /live_chat é a fonte principal do seletor de emotes e também
+  // do token de continuação usado pelo cliente web do YouTube.
+  let directData: any = null;
+  let directCfg: Record<string, any> = {};
   try {
     const direct = await fetchYouTubeHtml(
       `https://www.youtube.com/live_chat?is_popout=1&v=${encodeURIComponent(videoId)}&hl=en&gl=US`,
     );
-    const directData = initialDataFromHtml(direct.html);
+    directData = initialDataFromHtml(direct.html);
+    directCfg = extractYtcfg(direct.html);
     if (directData) {
       collectEmojiObjects(directData, emotes);
       collectPickerCategories(directData, categoryById, youtubeUnicodeEmojiIds);
     }
   } catch {
-    // Continua com o fluxo por continuation.
+    // Continua com os dados que vieram da página /watch.
   }
 
-  const continuations = watchInitialData
-    ? liveChatContinuations(watchInitialData)
-    : [];
+  const continuationSet = new Set<string>();
+  if (directData) {
+    for (const token of liveChatContinuations(directData)) continuationSet.add(token);
+    collectContinuationTokens(directData, continuationSet);
+  }
+  if (watchInitialData) {
+    for (const token of liveChatContinuations(watchInitialData)) continuationSet.add(token);
+  }
+  const continuations = [...continuationSet];
 
   // O HTML de live_chat carregado por continuation é o mesmo fluxo usado pelo
   // cliente web do YouTube e traz metadados que não aparecem no Data API.
@@ -460,6 +472,7 @@ export async function getYouTubeLiveEmotes(
 
       const chatCfg = {
         ...watchCfg,
+        ...directCfg,
         ...extractYtcfg(chatPage.html),
       };
 
