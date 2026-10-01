@@ -448,30 +448,6 @@ a { color: inherit; text-decoration: none; }
   margin:0 auto 5px;
   object-fit:contain;
 }
-.emojiGrid {
-  grid-template-columns:repeat(auto-fill, minmax(62px, 1fr));
-}
-.emotePickerItem.emojiItem {
-  min-height:72px;
-}
-.emotePickerItem.emojiItem .emoteImageWrap {
-  height:36px;
-  display:grid !important;
-  place-items:center;
-}
-.emojiGlyph {
-  display:block !important;
-  overflow:visible !important;
-  white-space:normal !important;
-  text-overflow:clip !important;
-  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
-  font-size:27px !important;
-  font-weight:400 !important;
-  line-height:1 !important;
-}
-.emotePickerItem.emojiItem > span:not(.emoteImageWrap) {
-  font-size:8px;
-}
 .emotePickerItem span,
 .emotePickerItem small {
   display:block;
