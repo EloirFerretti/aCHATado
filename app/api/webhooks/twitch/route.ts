@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { insertMessage } from "@/lib/store";
+import { getTwitchUserProfiles } from "@/lib/twitch-users";
 
 export const runtime = "nodejs";
 
@@ -30,13 +31,18 @@ export async function POST(req: NextRequest) {
     if (payload?.subscription?.type !== "channel.chat.message") return NextResponse.json({ ok: true });
 
     const e = payload.event;
+    const chatterId = e.chatter_user_id ? String(e.chatter_user_id) : "";
+    const profile = chatterId
+      ? (await getTwitchUserProfiles([chatterId])).get(chatterId)
+      : null;
+
     await insertMessage({
       platform: "twitch",
       platform_message_id: String(e.message_id),
       channel_id: e.broadcaster_user_id ? String(e.broadcaster_user_id) : null,
-      author_id: e.chatter_user_id ? String(e.chatter_user_id) : null,
-      author_name: e.chatter_user_name || e.chatter_user_login || "Twitch user",
-      author_avatar: null,
+      author_id: chatterId || null,
+      author_name: e.chatter_user_name || e.chatter_user_login || profile?.displayName || "Twitch user",
+      author_avatar: profile?.avatar || null,
       author_color: e.color || null,
       message: e.message?.text || "",
       message_type: "text",
