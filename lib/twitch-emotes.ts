@@ -9,6 +9,14 @@ export type TwitchPickerEmote = {
   animated?: boolean;
 };
 
+type PickerCacheEntry = {
+  value: { emotes: TwitchPickerEmote[]; userScopeAvailable: boolean };
+  expiresAt: number;
+};
+
+const pickerCache = new Map<string, PickerCacheEntry>();
+const PICKER_TTL = 10 * 60 * 1000;
+
 function emoteUrl(template: string, emote: any) {
   const formats = Array.isArray(emote?.format) ? emote.format : ["static"];
   const scales = Array.isArray(emote?.scale) ? emote.scale : ["2.0"];
@@ -93,6 +101,11 @@ export async function getTwitchPickerEmotes(
   broadcasterId: string,
   session?: PlatformSession | null,
 ) {
+  const scopeKey = (session?.scope || []).slice().sort().join(",");
+  const cacheKey = `${broadcasterId}:${session?.userId || "anon"}:${scopeKey}`;
+  const cached = pickerCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
   const target = new Map<string, TwitchPickerEmote>();
   const appToken = await getTwitchAppToken();
 
@@ -116,8 +129,10 @@ export async function getTwitchPickerEmotes(
     ? await loadUserEmotes(session, broadcasterId, target)
     : false;
 
-  return {
+  const value = {
     emotes: [...target.values()],
     userScopeAvailable,
   };
+  pickerCache.set(cacheKey, { value, expiresAt: Date.now() + PICKER_TTL });
+  return value;
 }
