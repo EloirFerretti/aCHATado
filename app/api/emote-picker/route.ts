@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getThirdPartyEmotes, type ThirdPartyPlatform } from "@/lib/emotes";
-import { unicodeEmojiCatalog } from "@/lib/emoji-catalog";
 import { getTwitchPickerEmotes } from "@/lib/twitch-emotes";
 import {
   getYouTubePickerEmotes,
@@ -17,26 +16,22 @@ type PickerProvider =
   | "youtube"
   | "bttv"
   | "ffz"
-  | "7tv"
-  | "emoji";
+  | "7tv";
 
 type PickerCategory =
   | "user"
   | "channel"
   | "official"
-  | "thirdparty"
-  | "emoji";
+  | "thirdparty";
 
 type PickerEmote = {
   id?: string;
   code: string;
   name?: string;
   url?: string;
-  glyph?: string;
   provider: PickerProvider;
   category: PickerCategory;
   scope: "global" | "channel" | "user";
-  kind: "emote" | "emoji";
   animated?: boolean;
   zeroWidth?: boolean;
   native?: boolean;
@@ -65,7 +60,6 @@ function sortItems(items: PickerEmote[]) {
     channel: 1,
     official: 2,
     thirdparty: 3,
-    emoji: 4,
   };
   const providerOrder: Record<PickerProvider, number> = {
     twitch: 0,
@@ -73,7 +67,6 @@ function sortItems(items: PickerEmote[]) {
     "7tv": 1,
     bttv: 2,
     ffz: 3,
-    emoji: 4,
   };
 
   return items.sort(
@@ -113,7 +106,6 @@ export async function GET(req: NextRequest) {
           ...emote,
           provider: "twitch",
           category: categoryFromNativeScope(emote.scope),
-          kind: "emote",
           native: true,
         });
       }
@@ -134,8 +126,7 @@ export async function GET(req: NextRequest) {
             provider: "youtube",
             category: emote.category === "channel" ? "channel" : "official",
             scope: emote.category === "channel" ? "channel" : "global",
-            kind: "emote",
-            native: true,
+              native: true,
           });
         }
       }
@@ -150,32 +141,15 @@ export async function GET(req: NextRequest) {
         provider: emote.provider,
         category: "thirdparty",
         scope: emote.scope,
-        kind: "emote",
         animated: emote.animated,
         zeroWidth: emote.zeroWidth,
         native: false,
       });
     }
 
-    for (const emoji of unicodeEmojiCatalog) {
-      items.push({
-        code: emoji.emoji,
-        name: emoji.name,
-        glyph: emoji.emoji,
-        provider: "emoji",
-        category: "emoji",
-        scope: "global",
-        kind: "emoji",
-        native: true,
-      });
-    }
-
     const unique = new Map<string, PickerEmote>();
     for (const item of sortItems(items)) {
-      const key =
-        item.kind === "emoji"
-          ? `emoji:${item.code}`
-          : `${item.provider}:${item.id || item.code}`;
+      const key = `${item.provider}:${item.id || item.code}`;
       if (!unique.has(key)) unique.set(key, item);
     }
 
@@ -186,14 +160,11 @@ export async function GET(req: NextRequest) {
         videoId: videoId || undefined,
         nativeCount: values.filter(
           (item) =>
-            item.kind === "emote" &&
-            (item.category === "official" || item.category === "channel"),
+            item.category === "official" || item.category === "channel",
         ).length,
-        emojiCount: values.filter((item) => item.kind === "emoji").length,
         emotes: values,
         providers: {
           native: platform === "twitch" || platform === "youtube",
-          emoji: true,
           ...thirdParty.providers,
         },
         scopeUpgradeRequired,
@@ -219,7 +190,7 @@ export async function GET(req: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Falha ao carregar emotes e emojis.",
+            : "Falha ao carregar emotes.",
       },
       { status: 500 },
     );
