@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readPlatformSession, writePlatformSession } from "@/lib/session";
 import { refreshPlatformSession } from "@/lib/platform-auth";
-import { getYouTubeLiveChatId } from "@/lib/youtube";
+import { findActiveYouTubeLive } from "@/lib/youtube";
 import type { Platform } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -15,10 +15,16 @@ export async function POST(req: NextRequest) {
     const payload = await req.json();
     const platform = payload.platform;
     const message = typeof payload.message === "string" ? payload.message.trim() : "";
+    const channelId = typeof payload.channelId === "string" ? payload.channelId.trim() : "";
+    let liveChatId = typeof payload.liveChatId === "string" ? payload.liveChatId.trim() : "";
+
     if (!isPlatform(platform)) return NextResponse.json({ error: "Plataforma inválida" }, { status: 400 });
     if (!message) return NextResponse.json({ error: "Digite uma mensagem" }, { status: 400 });
+    if (!channelId) return NextResponse.json({ error: `Selecione primeiro o canal da ${platform}.` }, { status: 400 });
     const max = platform === "youtube" ? 200 : 500;
-    if ([...message].length > max) return NextResponse.json({ error: `Limite de ${max} caracteres para ${platform}.` }, { status: 400 });
+    if ([...message].length > max) {
+      return NextResponse.json({ error: `Limite de ${max} caracteres para ${platform}.` }, { status: 400 });
+    }
 
     const stored = await readPlatformSession(platform);
     if (!stored) return NextResponse.json({ error: `Conecte sua conta ${platform} antes de enviar.` }, { status: 401 });
@@ -26,8 +32,7 @@ export async function POST(req: NextRequest) {
 
     let upstream: Response;
     if (platform === "twitch") {
-      const broadcasterId = process.env.TWITCH_BROADCASTER_ID;
-      if (!broadcasterId || !session.userId) throw new Error("TWITCH_BROADCASTER_ID ou usuário não configurado.");
+      if (!session.userId) throw new Error("Não foi possível identificar sua conta Twitch.");
       upstream = await fetch("https://api.twitch.tv/helix/chat/messages", {
         method: "POST",
         headers: {
@@ -35,29 +40,25 @@ export async function POST(req: NextRequest) {
           "Client-Id": process.env.TWITCH_CLIENT_ID || "",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          broadcaster_id: broadcasterId,
-          sender_id: session.userId,
-          message,
-        }),
+        body: JSON.stringify({ broadcaster_id: channelId, sender_id: session.userId, message }),
       });
     } else if (platform === "kick") {
-      const broadcasterId = Number(process.env.KICK_BROADCASTER_ID || 0);
-      if (!broadcasterId) throw new Error("KICK_BROADCASTER_ID não configurado.");
       upstream = await fetch("https://api.kick.com/public/v1/chat", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          broadcaster_user_id: broadcasterId,
-          content: message,
-          type: "user",
-        }),
+        body: JSON.stringify({ broadcaster_user_id: Number(channelId), content: message, type: "user" }),
       });
     } else {
-      const liveChatId = await getYouTubeLiveChatId();
+      if (!liveChatId) {
+        const live = await findActiveYouTubeLive(channelId);
+        liveChatId = live?.liveChatId || "";
+      }
+      if (!liveChatId) {
+        return NextResponse.json({ error: "Esse canal do YouTube não tem uma live com chat ativo agora." }, { status: 409 });
+      }
       const u = new URL("https://www.googleapis.com/youtube/v3/liveChat/messages");
       u.searchParams.set("part", "snippet");
       upstream = await fetch(u, {
@@ -77,14 +78,17 @@ export async function POST(req: NextRequest) {
     }
 
     const text = await upstream.text();
-    let data: unknown;
+    let data: any;
     try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
     if (!upstream.ok) {
-      const errorMessage = (data as any)?.message || (data as any)?.error?.message || `A plataforma respondeu ${upstream.status}.`;
-      return NextResponse.json({ error: errorMessage, details: data }, { status: upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502 });
+      const errorMessage = data?.message || data?.error?.message || `A plataforma respondeu ${upstream.status}.`;
+      return NextResponse.json(
+        { error: errorMessage, details: data },
+        { status: upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502 },
+      );
     }
 
-    const sendResult = (data as any)?.data?.[0] ?? (data as any)?.data;
+    const sendResult = data?.data?.[0] ?? data?.data;
     if (sendResult?.is_sent === false) {
       const reason = sendResult?.drop_reason?.message || sendResult?.drop_reason?.code || "A plataforma recusou a mensagem.";
       return NextResponse.json({ error: reason, details: data }, { status: 422 });
