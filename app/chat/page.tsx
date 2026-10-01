@@ -858,7 +858,7 @@ export default function Home() {
                       ) : auth[p].connected ? (
                         <button className="tinyButton" onClick={() => logout(p)}>Sair</button>
                       ) : (
-                        <a className="tinyButton" href={`/api/auth/${p}/start`}>Conectar</a>
+                        <a className="tinyButton" href={`/api/auth/${p}/start${popupMode ? "?popup=1" : ""}`}>Conectar</a>
                       )}
                     </div>
                   ))}
@@ -1009,7 +1009,7 @@ export default function Home() {
                 A API da {labels[selected]} precisa ser configurada no servidor.
               </div>
             ) : !auth[selected]?.connected ? (
-              <a className={`connectCallout ${selected}`} href={`/api/auth/${selected}/start`}>
+              <a className={`connectCallout ${selected}`} href={`/api/auth/${selected}/start${popupMode ? "?popup=1" : ""}`}>
                 Conectar {labels[selected]} para enviar mensagens como você
               </a>
             ) : (
@@ -1062,7 +1062,7 @@ export default function Home() {
                       </div>
 
                       {selected === "twitch" && pickerScopeUpgradeRequired && (
-                        <a className="emoteScopeNotice" href="/api/auth/twitch/start">
+                        <a className="emoteScopeNotice" href={`/api/auth/twitch/start${popupMode ? "?popup=1" : ""}`}>
                           Reconecte a Twitch para incluir emotes da sua conta e assinaturas.
                         </a>
                       )}
