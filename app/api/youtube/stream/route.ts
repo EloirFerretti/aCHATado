@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ensureYouTubeLiveChatStream } from "@/lib/youtube-live-stream";
 import { findActiveYouTubeLive, isYouTubeQuotaError } from "@/lib/youtube";
 import { getState, setState } from "@/lib/store";
+import { readPlatformSession, writePlatformSession } from "@/lib/session";
+import { refreshPlatformSession } from "@/lib/platform-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,13 +73,41 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const stream = await ensureYouTubeLiveChatStream(channelId, liveChatId);
-    return NextResponse.json({
+    const stored = await readPlatformSession("youtube");
+    const refreshedSession = stored
+      ? await refreshPlatformSession("youtube", stored).catch(() => stored)
+      : null;
+
+    const stream = await ensureYouTubeLiveChatStream(
+      channelId,
+      liveChatId,
+      refreshedSession?.accessToken,
+    );
+
+    const lastErrorText = stream.lastError?.message || "";
+    const quotaExceeded = /quotaExceeded|exceeded your quota/i.test(lastErrorText);
+    const rateLimited =
+      stream.lastError?.code === 8 ||
+      /rate.?limit|resource has been exhausted/i.test(lastErrorText);
+
+    const response = NextResponse.json({
       mode: "stream",
       ...stream,
+      quotaExceeded,
+      rateLimited,
       liveChatId,
       videoId: videoId || undefined,
     });
+
+    if (
+      stored &&
+      refreshedSession &&
+      refreshedSession.accessToken !== stored.accessToken
+    ) {
+      writePlatformSession(response, "youtube", refreshedSession);
+    }
+
+    return response;
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Falha ao iniciar stream do YouTube." },
