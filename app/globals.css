@@ -47,9 +47,9 @@ a { color: inherit; text-decoration: none; }
 .messageList { flex:1; overflow:auto; padding:12px 18px 22px; }
 .messageListContent { min-height:100%; }
 .message { display:flex; gap:12px; padding:10px 8px; border-radius:12px; transition:.15s ease; }.message:hover { background:#151923; }
-.avatarRing { flex:0 0 auto; width:38px; height:38px; border-radius:50%; padding:2px; position:relative; background:#303643; display:grid; place-items:center; font-weight:800; }
+.avatarRing { flex:0 0 auto; width:38px; height:38px; box-sizing:border-box; border-radius:50%; padding:2px; position:relative; background:#303643; display:grid; place-items:center; font-weight:800; }
 .avatarRing.twitch { box-shadow:inset 0 0 0 1px rgba(169,112,255,.55); }.avatarRing.kick { box-shadow:inset 0 0 0 1px rgba(83,252,24,.45); }.avatarRing.youtube { box-shadow:inset 0 0 0 1px rgba(255,69,58,.5); }
-.avatarRing img { width:100%; height:100%; border-radius:50%; object-fit:cover; }.avatarRing>span:first-child { font-size:13px; color:#d9dde5; }
+.avatarRing img { display:block; width:100%; height:100%; min-width:0; min-height:0; max-width:100%; max-height:100%; aspect-ratio:1 / 1; border-radius:50%; object-fit:cover; object-position:center; }.avatarRing>span:first-child { font-size:13px; color:#d9dde5; }
 .miniPlatform { position:absolute; right:-3px; bottom:-2px; width:17px; height:17px; display:grid; place-items:center; border-radius:6px; font-size:8px; font-weight:900; border:2px solid #11141b; }
 .messageBody { min-width:0; padding-top:1px; }.meta { display:flex; flex-wrap:wrap; align-items:center; gap:7px; }.meta strong { font-size:12px; }.meta time { font-size:9px;color:#626a7a; }.platformLabel { font-size:8px !important; font-weight:800; margin:0 !important; padding:3px 6px; border-radius:999px; text-transform:uppercase; letter-spacing:.03em; }.platformLabel.twitch { background:rgba(169,112,255,.13); color:#c7a8ff; }.platformLabel.kick { background:rgba(83,252,24,.12); color:#8cff65; }.platformLabel.youtube { background:rgba(255,69,58,.13); color:#ff8179; }
 .message p { margin:5px 0 0; color:#d5d9e1; font-size:13px; line-height:1.46; word-break:break-word; }
@@ -847,9 +847,15 @@ a { color: inherit; text-decoration: none; }
   display:flex;
   width:100%;
   height:100%;
+  min-width:0;
+  min-height:0;
+  max-width:100%;
+  max-height:100%;
+  box-sizing:border-box;
   align-items:center;
   justify-content:center;
-  border-radius:inherit;
+  overflow:hidden;
+  border-radius:50%;
   color:inherit;
   text-decoration:none;
 }
@@ -857,11 +863,17 @@ a { color: inherit; text-decoration: none; }
 .avatarProfileLink > span {
   width:100%;
   height:100%;
+  min-width:0;
+  min-height:0;
+  max-width:100%;
+  max-height:100%;
 }
 .avatarProfileLink > img {
   display:block;
+  aspect-ratio:1 / 1;
   object-fit:cover;
-  border-radius:inherit;
+  object-position:center;
+  border-radius:50%;
 }
 .authorProfileLink {
   display:inline-flex;
