@@ -12,13 +12,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const channelId = typeof body?.channelId === "string" ? body.channelId.trim() : "";
     let liveChatId = typeof body?.liveChatId === "string" ? body.liveChatId.trim() : "";
+    let videoId = typeof body?.videoId === "string" ? body.videoId.trim() : "";
 
     if (channelId && !liveChatId) {
       const discoveryKey = `youtube-channel:${channelId}`;
-      const discovery = await getState<{ liveChatId?: string | null; nextResolveAt?: number }>(discoveryKey);
+      const discovery = await getState<{ liveChatId?: string | null; videoId?: string | null; nextResolveAt?: number }>(discoveryKey);
 
       if (discovery?.nextResolveAt && Date.now() < discovery.nextResolveAt) {
         liveChatId = discovery.liveChatId || "";
+        videoId = discovery.videoId || videoId;
         if (!liveChatId) {
           return NextResponse.json({
             skipped: true,
@@ -29,9 +31,11 @@ export async function POST(req: NextRequest) {
       } else {
         const live = await findActiveYouTubeLive(channelId);
         liveChatId = live?.liveChatId || "";
+        videoId = live?.videoId || videoId;
         await setState(discoveryKey, {
           liveChatId: liveChatId || null,
-          nextResolveAt: Date.now() + (liveChatId ? 60_000 : 60_000),
+          videoId: videoId || null,
+          nextResolveAt: Date.now() + 60_000,
         });
         if (!liveChatId) return NextResponse.json({ skipped: true, offline: true, retryAfterMs: 60_000 });
       }
@@ -58,6 +62,7 @@ export async function POST(req: NextRequest) {
       if (channelId) {
         await setState(`youtube-channel:${channelId}`, {
           liveChatId: null,
+          videoId: videoId || null,
           nextResolveAt: Date.now() + 60_000,
         });
       }
@@ -101,6 +106,7 @@ export async function POST(req: NextRequest) {
       fetched: json.items?.length || 0,
       inserted,
       liveChatId,
+      videoId: videoId || undefined,
       pollingIntervalMillis: interval,
     });
   } catch (error) {
