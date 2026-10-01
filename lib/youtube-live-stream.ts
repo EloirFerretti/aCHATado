@@ -15,6 +15,7 @@ type StreamEntry = {
   retryTimer?: ReturnType<typeof setTimeout>;
   idleTimer?: ReturnType<typeof setInterval>;
   queue: Promise<void>;
+  lastStatePersistedAt: number;
 };
 
 type StreamRegistry = Map<string, StreamEntry>;
@@ -103,10 +104,13 @@ function toChatMessage(item: any, channelId: string): ChatMessage | null {
   };
 }
 
-async function persistStreamState(entry: StreamEntry) {
+async function persistStreamState(entry: StreamEntry, force = false) {
+  const now = Date.now();
+  if (!force && now - entry.lastStatePersistedAt < 10_000) return;
+  entry.lastStatePersistedAt = now;
   await setState(`youtube-stream:${entry.liveChatId}`, {
     nextPageToken: entry.nextPageToken || null,
-    updatedAt: Date.now(),
+    updatedAt: now,
   });
 }
 
@@ -157,7 +161,6 @@ function startStream(entry: StreamEntry) {
   call.on("data", (response: any) => {
     if (entry.stopped) return;
     entry.status = "streaming";
-    entry.lastTouched = Math.max(entry.lastTouched, Date.now() - IDLE_TIMEOUT_MS + 60_000);
     if (response?.nextPageToken) entry.nextPageToken = String(response.nextPageToken);
 
     entry.queue = entry.queue.then(async () => {
@@ -165,7 +168,7 @@ function startStream(entry: StreamEntry) {
         .map((item: any) => toChatMessage(item, entry.channelId))
         .filter(Boolean) as ChatMessage[];
       if (messages.length) await insertMessages(messages);
-      await persistStreamState(entry);
+      await persistStreamState(entry, Boolean(response?.offlineAt));
       if (response?.offlineAt) await markEnded(entry);
     }).catch(() => undefined);
   });
@@ -230,6 +233,7 @@ export async function ensureYouTubeLiveChatStream(
     status: "connecting",
     stopped: false,
     queue: Promise.resolve(),
+    lastStatePersistedAt: 0,
   };
 
   registry().set(liveChatId, entry);
