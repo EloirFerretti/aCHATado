@@ -778,6 +778,13 @@ a { color: inherit; text-decoration: none; }
   font-weight:900;
   letter-spacing:-.02em;
 }
+.kickUserBadgeImage {
+  display:block;
+  width:18px;
+  height:18px;
+  flex:0 0 18px;
+  object-fit:contain;
+}
 .kickUserBadge b {
   font:inherit;
   line-height:1;
@@ -804,29 +811,29 @@ a { color: inherit; text-decoration: none; }
   color:#071404;
   border-color:#82ff59;
 }
-.kickBadge-moderator {
+.kickUserBadge.kickBadge-moderator {
   background:#16a34a;
   border-color:#4ade80;
 }
-.kickBadge-vip {
+.kickUserBadge.kickBadge-vip {
   background:#db2777;
   border-color:#f472b6;
 }
-.kickBadge-subscriber,
-.kickBadge-founder {
+.kickUserBadge.kickBadge-subscriber,
+.kickUserBadge.kickBadge-founder {
   background:#15803d;
   border-color:#53fc18;
 }
-.kickBadge-sub_gifter {
+.kickUserBadge.kickBadge-sub_gifter {
   background:#7c3aed;
   border-color:#a78bfa;
 }
-.kickBadge-verified,
-.kickBadge-staff {
+.kickUserBadge.kickBadge-verified,
+.kickUserBadge.kickBadge-staff {
   background:#2563eb;
   border-color:#60a5fa;
 }
-.kickBadge-og {
+.kickUserBadge.kickBadge-og {
   background:#b45309;
   border-color:#f59e0b;
 }
