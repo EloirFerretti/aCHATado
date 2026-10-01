@@ -31,6 +31,13 @@ type AuthInfo = Record<Platform, { connected: boolean; configured: boolean; user
 type ChannelInputs = Record<Platform, string>;
 type ChannelMap = Partial<Record<Platform, ResolvedChannel>>;
 type ChannelErrors = Partial<Record<Platform, string>>;
+type EmoteDefinition = {
+  code: string;
+  url: string;
+  provider: "bttv" | "ffz" | "7tv";
+  animated?: boolean;
+  zeroWidth?: boolean;
+};
 
 const platforms: Platform[] = ["twitch", "kick", "youtube"];
 const labels: Record<Platform, string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube" };
@@ -71,6 +78,7 @@ export default function Home() {
   const [channelInputs, setChannelInputs] = useState<ChannelInputs>(emptyInputs);
   const [channels, setChannels] = useState<ChannelMap>({});
   const [channelErrors, setChannelErrors] = useState<ChannelErrors>({});
+  const [thirdPartyEmotes, setThirdPartyEmotes] = useState<Record<string, EmoteDefinition>>({});
   const [resolving, setResolving] = useState(false);
   const [ready, setReady] = useState(false);
   const lastId = useRef(0);
@@ -178,6 +186,28 @@ export default function Home() {
   const channelKey = platforms
     .map((p) => `${p}:${channels[p]?.channelId || ""}:${channels[p]?.liveChatId || ""}`)
     .join("|");
+
+  useEffect(() => {
+    const channelId = channels.twitch?.channelId;
+    if (!ready || !channelId) {
+      setThirdPartyEmotes({});
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/emotes?channelId=${encodeURIComponent(channelId)}`, { cache: "no-store" })
+      .then(async (res) => res.ok ? res.json() : Promise.reject(new Error("Falha ao carregar emotes")))
+      .then((json) => {
+        if (!cancelled) setThirdPartyEmotes(json.emotes || {});
+      })
+      .catch(() => {
+        if (!cancelled) setThirdPartyEmotes({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, channels.twitch?.channelId]);
 
   useEffect(() => {
     if (!ready) return;
@@ -303,6 +333,28 @@ export default function Home() {
 
   const maxLength = selected === "youtube" ? 200 : 500;
   const selectedTarget = channels[selected];
+
+  function renderMessageText(message: Message) {
+    if (message.platform !== "twitch" || !Object.keys(thirdPartyEmotes).length) {
+      return message.message;
+    }
+
+    return message.message.split(/(\s+)/).map((part, index) => {
+      const emote = thirdPartyEmotes[part];
+      if (!emote) return part;
+
+      return (
+        <img
+          className={`chatEmote ${emote.zeroWidth ? "zeroWidth" : ""}`}
+          src={emote.url}
+          alt={part}
+          title={`${part} · ${emote.provider.toUpperCase()}`}
+          loading="lazy"
+          key={`${message.platform_message_id}-emote-${index}`}
+        />
+      );
+    });
+  }
 
   return (
     <main className="shell">
@@ -471,7 +523,7 @@ export default function Home() {
                     <span className={`platformLabel ${m.platform}`}>{labels[m.platform]}</span>
                     <time>{timeLabel(m.created_at)}</time>
                   </div>
-                  <p>{m.message}</p>
+                  <p className="chatText">{renderMessageText(m)}</p>
                 </div>
               </article>
             ))}
