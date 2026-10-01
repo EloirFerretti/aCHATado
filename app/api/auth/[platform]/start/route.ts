@@ -65,6 +65,7 @@ export async function GET(
       authorizeUrl.searchParams.set("response_type", "code");
       authorizeUrl.searchParams.set("scope", "https://www.googleapis.com/auth/youtube.force-ssl");
       authorizeUrl.searchParams.set("access_type", "offline");
+      authorizeUrl.searchParams.set("include_granted_scopes", "true");
       authorizeUrl.searchParams.set("prompt", "consent");
       authorizeUrl.searchParams.set("state", state);
     }
