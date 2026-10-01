@@ -10,7 +10,7 @@ function isPlatform(value: string): value is Platform {
 }
 
 function homeWithError(origin: string, platform: string, message: string) {
-  const url = new URL("/", origin);
+  const url = new URL("/chat", origin);
   url.searchParams.set("auth_error", `${platform}: ${message}`);
   return NextResponse.redirect(url);
 }
