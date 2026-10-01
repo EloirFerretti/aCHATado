@@ -44,6 +44,16 @@ type YouTubeEmote = {
   url: string;
   custom: boolean;
 };
+type PickerProvider = "all" | "twitch" | "youtube" | "bttv" | "ffz" | "7tv";
+type PickerEmote = {
+  code: string;
+  url: string;
+  provider: Exclude<PickerProvider, "all">;
+  scope: "global" | "channel" | "user";
+  animated?: boolean;
+  zeroWidth?: boolean;
+  native?: boolean;
+};
 
 const platforms: Platform[] = ["twitch", "kick", "youtube"];
 const labels: Record<Platform, string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube" };
@@ -59,6 +69,19 @@ const emptyAuth: AuthInfo = {
   youtube: { connected: false, configured: false },
 };
 const emptyInputs: ChannelInputs = { twitch: "", kick: "", youtube: "" };
+const pickerProviderLabels: Record<PickerProvider, string> = {
+  all: "Todos",
+  twitch: "Twitch",
+  youtube: "YouTube",
+  bttv: "BTTV",
+  ffz: "FFZ",
+  "7tv": "7TV",
+};
+const pickerScopeLabels = {
+  user: "Seus emotes",
+  channel: "Canal",
+  global: "Globais",
+} as const;
 
 function timeLabel(iso: string) {
   try {
@@ -86,10 +109,17 @@ export default function Home() {
   const [channelErrors, setChannelErrors] = useState<ChannelErrors>({});
   const [thirdPartyEmotes, setThirdPartyEmotes] = useState<Record<string, EmoteDefinition>>({});
   const [youtubeEmotes, setYoutubeEmotes] = useState<Record<string, YouTubeEmote>>({});
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerEmotes, setPickerEmotes] = useState<PickerEmote[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState("");
+  const [pickerProvider, setPickerProvider] = useState<PickerProvider>("all");
+  const [pickerScopeUpgradeRequired, setPickerScopeUpgradeRequired] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [ready, setReady] = useState(false);
   const lastId = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const autoResolveAfterAuth = useRef(false);
 
   async function loadAuth() {
@@ -404,6 +434,88 @@ export default function Home() {
 
   const maxLength = selected === "youtube" ? 200 : 500;
   const selectedTarget = channels[selected];
+
+  useEffect(() => {
+    let cancelled = false;
+    setPickerOpen(false);
+    setPickerSearch("");
+    setPickerProvider("all");
+    setPickerScopeUpgradeRequired(false);
+
+    if (!ready || !selectedTarget?.channelId) {
+      setPickerEmotes([]);
+      return;
+    }
+
+    setPickerLoading(true);
+    const params = new URLSearchParams({
+      platform: selected,
+      channelId: selectedTarget.channelId,
+    });
+    if (selectedTarget.videoId) params.set("videoId", selectedTarget.videoId);
+
+    fetch(`/api/emote-picker?${params.toString()}`, { cache: "no-store" })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Falha ao carregar emotes.");
+        return json;
+      })
+      .then((json) => {
+        if (cancelled) return;
+        setPickerEmotes(Array.isArray(json.emotes) ? json.emotes : []);
+        setPickerScopeUpgradeRequired(Boolean(json.scopeUpgradeRequired));
+      })
+      .catch(() => {
+        if (!cancelled) setPickerEmotes([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPickerLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    ready,
+    selected,
+    selectedTarget?.channelId,
+    selectedTarget?.videoId,
+    auth[selected]?.connected,
+  ]);
+
+  const pickerProviders = useMemo(() => {
+    const available = new Set(pickerEmotes.map((emote) => emote.provider));
+    return (["all", "twitch", "youtube", "7tv", "bttv", "ffz"] as PickerProvider[])
+      .filter((provider) => provider === "all" || available.has(provider as PickerEmote["provider"]));
+  }, [pickerEmotes]);
+
+  const filteredPickerEmotes = useMemo(() => {
+    const query = pickerSearch.trim().toLowerCase();
+    return pickerEmotes.filter((emote) => {
+      if (pickerProvider !== "all" && emote.provider !== pickerProvider) return false;
+      if (query && !emote.code.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [pickerEmotes, pickerProvider, pickerSearch]);
+
+  function insertPickerEmote(emote: PickerEmote) {
+    const node = textareaRef.current;
+    const start = node?.selectionStart ?? text.length;
+    const end = node?.selectionEnd ?? start;
+    const before = text.slice(0, start);
+    const after = text.slice(end);
+    const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
+    const needsTrailingSpace = after.length === 0 || !/^\s/.test(after);
+    const insertion = `${needsLeadingSpace ? " " : ""}${emote.code}${needsTrailingSpace ? " " : ""}`;
+    const next = `${before}${insertion}${after}`.slice(0, maxLength);
+    const cursor = Math.min(before.length + insertion.length, next.length);
+
+    setText(next);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(cursor, cursor);
+    });
+  }
 
   function renderThirdPartyTwitchText(textValue: string, messageId: string, prefix: string) {
     if (!Object.keys(thirdPartyEmotes).length) return textValue;
@@ -731,6 +843,7 @@ export default function Home() {
                     key={p}
                     onClick={() => {
                       setSelected(p);
+                      setPickerOpen(false);
                       setError("");
                     }}
                     className={`${selected === p ? "selected" : ""} ${p}`}
@@ -758,7 +871,90 @@ export default function Home() {
             ) : (
               <div className="inputRow">
                 <div className="textWrap">
+                  <button
+                    type="button"
+                    className={`emotePickerButton ${pickerOpen ? "active" : ""}`}
+                    onClick={() => setPickerOpen((value) => !value)}
+                    aria-label="Abrir menu de emotes"
+                    title="Emotes"
+                  >
+                    ☺
+                  </button>
+
+                  {pickerOpen && (
+                    <div className="emotePickerPanel">
+                      <div className="emotePickerHeader">
+                        <div>
+                          <strong>Emotes da {labels[selected]}</strong>
+                          <span>{pickerEmotes.length} disponíveis</span>
+                        </div>
+                        <button type="button" onClick={() => setPickerOpen(false)} aria-label="Fechar emotes">×</button>
+                      </div>
+
+                      <input
+                        className="emotePickerSearch"
+                        value={pickerSearch}
+                        onChange={(e) => setPickerSearch(e.target.value)}
+                        placeholder="Pesquisar emote…"
+                        autoComplete="off"
+                      />
+
+                      <div className="emoteProviderTabs">
+                        {pickerProviders.map((provider) => (
+                          <button
+                            type="button"
+                            key={provider}
+                            className={pickerProvider === provider ? "active" : ""}
+                            onClick={() => setPickerProvider(provider)}
+                          >
+                            {pickerProviderLabels[provider]}
+                          </button>
+                        ))}
+                      </div>
+
+                      {selected === "twitch" && pickerScopeUpgradeRequired && (
+                        <a className="emoteScopeNotice" href="/api/auth/twitch/start">
+                          Reconecte a Twitch para incluir emotes da sua conta e assinaturas.
+                        </a>
+                      )}
+
+                      <div className="emotePickerContent">
+                        {pickerLoading ? (
+                          <div className="emotePickerEmpty">Carregando emotes…</div>
+                        ) : filteredPickerEmotes.length === 0 ? (
+                          <div className="emotePickerEmpty">Nenhum emote encontrado.</div>
+                        ) : (
+                          (["user", "channel", "global"] as const).map((scope) => {
+                            const scoped = filteredPickerEmotes.filter((emote) => emote.scope === scope);
+                            if (!scoped.length) return null;
+                            return (
+                              <section className="emotePickerGroup" key={scope}>
+                                <div className="emotePickerGroupTitle">{pickerScopeLabels[scope]}</div>
+                                <div className="emotePickerGrid">
+                                  {scoped.map((emote, index) => (
+                                    <button
+                                      type="button"
+                                      className="emotePickerItem"
+                                      key={`${emote.provider}-${emote.code}-${index}`}
+                                      onClick={() => insertPickerEmote(emote)}
+                                      title={`${emote.code} · ${pickerProviderLabels[emote.provider]} · ${pickerScopeLabels[emote.scope]}`}
+                                    >
+                                      <img src={emote.url} alt={emote.code} loading="lazy" />
+                                      <span>{emote.code}</span>
+                                      <small>{pickerProviderLabels[emote.provider]}</small>
+                                    </button>
+                                  ))}
+                                </div>
+                              </section>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <textarea
+                    ref={textareaRef}
                     value={text}
                     onChange={(e) => setText(e.target.value.slice(0, maxLength))}
                     onKeyDown={(e) => {
