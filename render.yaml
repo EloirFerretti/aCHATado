@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: achatado
+    runtime: node
+    plan: free
+    region: virginia
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
