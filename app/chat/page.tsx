@@ -380,12 +380,35 @@ export default function Home() {
               return next;
             });
           }
-          delay = Math.max(
-            json.quotaExceeded ? 30 * 60_000 : 60_000,
-            Number(json.retryAfterMs || 0),
-          );
+
+          if (json.quotaExceeded) {
+            delay = 30 * 60_000;
+          } else if (json.status === "backoff" || json.active === false) {
+            // Se o gRPC falhar, usa o endpoint REST já protegido por nextPollAt.
+            // Isso evita ficar "silenciosamente conectado" sem receber mensagens.
+            const fallback = await fetch("/api/youtube/poll", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channelId: channel.channelId,
+                liveChatId: json.liveChatId || channel.liveChatId || undefined,
+                videoId: json.videoId || channel.videoId || undefined,
+              }),
+            });
+            const fallbackJson = await fallback.json().catch(() => null);
+
+            if (fallback.status === 429 || fallbackJson?.quotaExceeded) {
+              delay = Math.max(30 * 60_000, Number(fallbackJson?.retryAfterMs || 0));
+            } else {
+              delay = Math.max(
+                json.rateLimited ? 15_000 : 10_000,
+                Number(fallbackJson?.retryAfterMs || 0),
+              );
+            }
+          } else {
+            delay = 60_000;
+          }
         } else {
-          // Fallback apenas para falha técnica do gRPC, nunca para cota/offline do YouTube.
           const fallback = await fetch("/api/youtube/poll", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -396,7 +419,9 @@ export default function Home() {
             }),
           });
           const fallbackJson = await fallback.json().catch(() => null);
-          delay = Math.max(10_000, Number(fallbackJson?.retryAfterMs || 0));
+          delay = fallback.status === 429 || fallbackJson?.quotaExceeded
+            ? Math.max(30 * 60_000, Number(fallbackJson?.retryAfterMs || 0))
+            : Math.max(10_000, Number(fallbackJson?.retryAfterMs || 0));
         }
       } catch {
         delay = 15_000;
