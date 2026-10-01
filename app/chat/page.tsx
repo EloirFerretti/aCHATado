@@ -44,12 +44,17 @@ type YouTubeEmote = {
   url: string;
   custom: boolean;
 };
-type PickerProvider = "all" | "twitch" | "youtube" | "bttv" | "ffz" | "7tv";
+type PickerProvider = "all" | "twitch" | "youtube" | "bttv" | "ffz" | "7tv" | "emoji";
+type PickerCategory = "user" | "channel" | "official" | "thirdparty" | "emoji";
 type PickerEmote = {
   id?: string;
   code: string;
-  url: string;
+  name?: string;
+  url?: string;
+  glyph?: string;
   provider: Exclude<PickerProvider, "all">;
+  category: PickerCategory;
+  kind: "emote" | "emoji";
   scope: "global" | "channel" | "user";
   animated?: boolean;
   zeroWidth?: boolean;
@@ -82,12 +87,15 @@ const pickerProviderLabels: Record<PickerProvider, string> = {
   bttv: "BTTV",
   ffz: "FFZ",
   "7tv": "7TV",
+  emoji: "Emojis",
 };
-const pickerScopeLabels = {
+const pickerCategoryLabels: Record<PickerCategory, string> = {
   user: "Seus emotes",
   channel: "Canal",
-  global: "Globais",
-} as const;
+  official: "Oficiais",
+  thirdparty: "Terceiros",
+  emoji: "Emojis",
+};
 
 function timeLabel(iso: string) {
   try {
@@ -656,7 +664,7 @@ export default function Home() {
 
   const pickerProviders = useMemo(() => {
     const available = new Set(pickerEmotes.map((emote) => emote.provider));
-    return (["all", "twitch", "youtube", "7tv", "bttv", "ffz"] as PickerProvider[])
+    return (["all", "twitch", "youtube", "emoji", "7tv", "bttv", "ffz"] as PickerProvider[])
       .filter((provider) => provider === "all" || available.has(provider as PickerEmote["provider"]));
   }, [pickerEmotes]);
 
@@ -664,7 +672,11 @@ export default function Home() {
     const query = pickerSearch.trim().toLowerCase();
     return pickerEmotes.filter((emote) => {
       if (pickerProvider !== "all" && emote.provider !== pickerProvider) return false;
-      if (query && !emote.code.toLowerCase().includes(query)) return false;
+      if (
+        query &&
+        !emote.code.toLowerCase().includes(query) &&
+        !(emote.name || "").toLowerCase().includes(query)
+      ) return false;
       return true;
     });
   }, [pickerEmotes, pickerProvider, pickerSearch]);
@@ -1101,7 +1113,7 @@ export default function Home() {
                     <div className="emotePickerPanel">
                       <div className="emotePickerHeader">
                         <div>
-                          <strong>Emotes da {labels[selected]}</strong>
+                          <strong>Emotes e emojis da {labels[selected]}</strong>
                           <span>
                             {pickerEmotes.filter((emote) => !emote.locked).length} disponíveis
                             {pickerEmotes.some((emote) => emote.locked)
@@ -1116,7 +1128,7 @@ export default function Home() {
                         className="emotePickerSearch"
                         value={pickerSearch}
                         onChange={(e) => setPickerSearch(e.target.value)}
-                        placeholder="Pesquisar emote…"
+                        placeholder="Pesquisar emote ou emoji…"
                         autoComplete="off"
                       />
 
@@ -1145,18 +1157,22 @@ export default function Home() {
                         ) : filteredPickerEmotes.length === 0 ? (
                           <div className="emotePickerEmpty">Nenhum emote encontrado.</div>
                         ) : (
-                          (["user", "channel", "global"] as const).map((scope) => {
-                            const scoped = filteredPickerEmotes.filter((emote) => emote.scope === scope);
-                            if (!scoped.length) return null;
+                          (["user", "channel", "official", "thirdparty", "emoji"] as PickerCategory[]).map((category) => {
+                            const grouped = filteredPickerEmotes.filter((emote) => emote.category === category);
+                            if (!grouped.length) return null;
                             return (
-                              <section className="emotePickerGroup" key={scope}>
-                                <div className="emotePickerGroupTitle">{pickerScopeLabels[scope]}</div>
-                                <div className="emotePickerGrid">
-                                  {scoped.map((emote, index) => (
+                              <section className="emotePickerGroup" key={category}>
+                                <div className="emotePickerGroupTitle">
+                                  {category === "official"
+                                    ? `Oficiais da ${labels[selected]}`
+                                    : pickerCategoryLabels[category]}
+                                </div>
+                                <div className={`emotePickerGrid ${category === "emoji" ? "emojiGrid" : ""}`}>
+                                  {grouped.map((emote, index) => (
                                     <button
                                       type="button"
-                                      className={`emotePickerItem ${emote.locked ? "locked" : ""}`}
-                                      key={`${emote.provider}-${emote.code}-${index}`}
+                                      className={`emotePickerItem ${emote.kind === "emoji" ? "emojiItem" : ""} ${emote.locked ? "locked" : ""}`}
+                                      key={`${emote.provider}-${emote.id || emote.code}-${index}`}
                                       onClick={() => {
                                         if (!emote.locked) insertPickerEmote(emote);
                                       }}
@@ -1165,16 +1181,20 @@ export default function Home() {
                                       title={
                                         emote.locked
                                           ? `${emote.code} · ${emote.lockReason || "Requer assinatura deste canal."}`
-                                          : `${emote.code} · ${pickerProviderLabels[emote.provider]} · ${pickerScopeLabels[emote.scope]}`
+                                          : `${emote.name || emote.code} · ${pickerProviderLabels[emote.provider]} · ${pickerCategoryLabels[emote.category]}`
                                       }
                                     >
                                       <span className="emoteImageWrap">
-                                        <img src={emote.url} alt={emote.code} loading="lazy" />
+                                        {emote.kind === "emoji" ? (
+                                          <span className="emojiGlyph" aria-hidden="true">{emote.glyph || emote.code}</span>
+                                        ) : emote.url ? (
+                                          <img src={emote.url} alt={emote.code} loading="lazy" />
+                                        ) : null}
                                         {emote.locked && (
                                           <span className="emoteLockBadge" aria-hidden="true">🔒</span>
                                         )}
                                       </span>
-                                      <span>{emote.code}</span>
+                                      <span>{emote.kind === "emoji" ? emote.name || emote.code : emote.code}</span>
                                       <small>
                                         {emote.locked
                                           ? emote.tier === "3000"
@@ -1182,7 +1202,9 @@ export default function Home() {
                                             : emote.tier === "2000"
                                               ? "SUB TIER 2"
                                               : "SUB"
-                                          : pickerProviderLabels[emote.provider]}
+                                          : emote.kind === "emoji"
+                                            ? "EMOJI"
+                                            : pickerProviderLabels[emote.provider]}
                                       </small>
                                     </button>
                                   ))}
