@@ -16,6 +16,10 @@ type StreamEntry = {
   idleTimer?: ReturnType<typeof setInterval>;
   queue: Promise<void>;
   lastStatePersistedAt: number;
+  accessToken?: string;
+  lastError?: { code?: number; message: string; at: number };
+  readyPromise: Promise<void>;
+  resolveReady: () => void;
 };
 
 type StreamRegistry = Map<string, StreamEntry>;
@@ -47,7 +51,7 @@ function youtubeClient() {
   const loaded = grpc.loadPackageDefinition(definition) as any;
   const Service = loaded.youtube.api.v3.V3DataLiveChatMessageService;
   root[clientKey] = new Service(
-    "youtube.googleapis.com:443",
+    "dns:///youtube.googleapis.com:443",
     grpc.credentials.createSsl(),
   );
   return root[clientKey];
@@ -140,14 +144,24 @@ function scheduleReconnect(entry: StreamEntry, delayMs: number) {
 function startStream(entry: StreamEntry) {
   if (entry.stopped) return;
   const apiKey = process.env.YOUTUBE_API_KEY;
-  if (!apiKey) {
+  if (!entry.accessToken && !apiKey) {
     entry.status = "backoff";
+    entry.lastError = {
+      message: "Nenhuma credencial do YouTube disponível para o stream.",
+      at: Date.now(),
+    };
+    entry.resolveReady();
     return;
   }
 
   entry.status = "connecting";
+  entry.lastError = undefined;
   const metadata = new grpc.Metadata();
-  metadata.set("x-goog-api-key", apiKey);
+  if (entry.accessToken) {
+    metadata.set("authorization", `Bearer ${entry.accessToken}`);
+  } else if (apiKey) {
+    metadata.set("x-goog-api-key", apiKey);
+  }
 
   const request: Record<string, unknown> = {
     liveChatId: entry.liveChatId,
@@ -162,7 +176,15 @@ function startStream(entry: StreamEntry) {
   call.on("data", (response: any) => {
     if (entry.stopped) return;
     entry.status = "streaming";
+    entry.lastError = undefined;
+    entry.resolveReady();
     if (response?.nextPageToken) entry.nextPageToken = String(response.nextPageToken);
+    console.info("[youtube-stream] response", {
+      liveChatId: entry.liveChatId.slice(0, 12),
+      items: Array.isArray(response?.items) ? response.items.length : 0,
+      hasNextPageToken: Boolean(response?.nextPageToken),
+      offline: Boolean(response?.offlineAt),
+    });
 
     entry.queue = entry.queue.then(async () => {
       const messages = (response?.items || [])
@@ -171,13 +193,27 @@ function startStream(entry: StreamEntry) {
       if (messages.length) await insertMessages(messages);
       await persistStreamState(entry, Boolean(response?.offlineAt));
       if (response?.offlineAt) await markEnded(entry);
-    }).catch(() => undefined);
+    }).catch((error) => {
+      console.error("[youtube-stream] persist/process error", {
+        liveChatId: entry.liveChatId.slice(0, 12),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   });
 
   call.on("error", (error: any) => {
     if (entry.stopped) return;
     const text = String(error?.details || error?.message || "");
     const code = Number(error?.code);
+    entry.lastError = { code, message: text || "Erro gRPC do YouTube.", at: Date.now() };
+    entry.resolveReady();
+
+    console.warn("[youtube-stream] grpc error", {
+      liveChatId: entry.liveChatId.slice(0, 12),
+      code,
+      message: text,
+    });
+
     if (
       code === grpc.status.FAILED_PRECONDITION ||
       code === grpc.status.NOT_FOUND ||
@@ -186,14 +222,22 @@ function startStream(entry: StreamEntry) {
       void markEnded(entry);
       return;
     }
+
+    // RESOURCE_EXHAUSTED em streamList normalmente indica rate limit/reconexão
+    // rápida demais, não necessariamente esgotamento da cota diária.
     scheduleReconnect(
       entry,
-      code === grpc.status.RESOURCE_EXHAUSTED ? 30 * 60_000 : 5_000,
+      code === grpc.status.RESOURCE_EXHAUSTED ? 15_000 : 5_000,
     );
   });
 
   call.on("end", () => {
-    if (!entry.stopped && entry.status !== "ended") scheduleReconnect(entry, 3_000);
+    if (!entry.stopped && entry.status !== "ended") {
+      console.warn("[youtube-stream] stream ended unexpectedly", {
+        liveChatId: entry.liveChatId.slice(0, 12),
+      });
+      scheduleReconnect(entry, 3_000);
+    }
   });
 }
 
@@ -211,20 +255,28 @@ function installIdleWatcher(entry: StreamEntry) {
 export async function ensureYouTubeLiveChatStream(
   channelId: string,
   liveChatId: string,
+  accessToken?: string,
 ) {
   const existing = registry().get(liveChatId);
   if (existing) {
     existing.lastTouched = Date.now();
+    if (accessToken) existing.accessToken = accessToken;
     return {
-      active: !existing.stopped,
+      active: !existing.stopped && existing.status !== "backoff",
       status: existing.status,
       shared: true,
+      lastError: existing.lastError,
     };
   }
 
   const saved = await getState<{ nextPageToken?: string | null }>(
     `youtube-stream:${liveChatId}`,
   );
+  let resolveReady = () => {};
+  const readyPromise = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+
   const entry: StreamEntry = {
     liveChatId,
     channelId,
@@ -235,11 +287,26 @@ export async function ensureYouTubeLiveChatStream(
     stopped: false,
     queue: Promise.resolve(),
     lastStatePersistedAt: 0,
+    accessToken,
+    readyPromise,
+    resolveReady,
   };
 
   registry().set(liveChatId, entry);
   installIdleWatcher(entry);
   startStream(entry);
 
-  return { active: true, status: entry.status, shared: false };
+  // Aguarda brevemente o primeiro pacote ou erro. Isso permite ao endpoint
+  // distinguir um stream saudável de uma falha silenciosa e acionar fallback.
+  await Promise.race([
+    entry.readyPromise,
+    new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+  ]);
+
+  return {
+    active: !entry.stopped && entry.status !== "backoff",
+    status: entry.status,
+    shared: false,
+    lastError: entry.lastError,
+  };
 }
