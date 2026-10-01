@@ -832,3 +832,41 @@ a { color: inherit; text-decoration: none; }
 .meta {
   min-height:20px;
 }
+
+
+/* Links para perfis dos autores */
+.avatarProfileLink {
+  display:flex;
+  width:100%;
+  height:100%;
+  align-items:center;
+  justify-content:center;
+  border-radius:inherit;
+  color:inherit;
+  text-decoration:none;
+}
+.avatarProfileLink > img,
+.avatarProfileLink > span {
+  width:100%;
+  height:100%;
+}
+.avatarProfileLink > img {
+  display:block;
+  object-fit:cover;
+  border-radius:inherit;
+}
+.authorProfileLink {
+  display:inline-flex;
+  min-width:0;
+  align-items:center;
+  color:inherit;
+  text-decoration:none;
+}
+.authorProfileLink strong {
+  cursor:pointer;
+}
+.authorProfileLink:hover strong,
+.authorProfileLink:focus-visible strong {
+  text-decoration:underline;
+  text-underline-offset:2px;
+}
