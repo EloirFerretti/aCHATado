@@ -1,3 +1,5 @@
+import { youtubeGlobalEmotes } from "@/lib/youtube-global-emotes";
+
 export type YouTubeEmoteCategory = "official" | "channel";
 
 export type YouTubeEmote = {
@@ -490,6 +492,20 @@ export async function getYouTubeLiveEmotes(
     }
   }
 
+  // O catálogo global oficial do YouTube é conhecido e estável o bastante
+  // para servir como fallback quando a resposta anônima omite o picker.
+  for (const emote of youtubeGlobalEmotes) {
+    const value: YouTubeEmote = {
+      id: emote.id,
+      shortcut: emote.shortcut,
+      aliases: [emote.shortcut],
+      url: emote.url,
+      custom: false,
+      category: "official",
+    };
+    if (!emotes[emote.shortcut]) emotes[emote.shortcut] = value;
+  }
+
   const uniqueEmotes = new Map<string, YouTubeEmote>();
   for (const emote of Object.values(emotes)) {
     const key = emote.id || emote.url;
@@ -517,7 +533,9 @@ export async function getYouTubeLiveEmotes(
       Object.values(emotes).map((emote) => emote.id || emote.url),
     ).size,
     continuations: continuations.length,
-    officialIds: [...categoryById.values()].filter((value) => value === "official").length,
+    officialIds:
+      [...categoryById.values()].filter((value) => value === "official").length +
+      youtubeGlobalEmotes.length,
     channelIds: [...categoryById.values()].filter((value) => value === "channel").length,
     unicodeIds: youtubeUnicodeEmojiIds.size,
     classified: [...uniqueEmotes.values()].filter((emote) => Boolean(emote.category)).length,
