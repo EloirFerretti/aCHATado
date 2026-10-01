@@ -419,16 +419,39 @@ export async function getYouTubeLiveEmotes(
   const emotes: Record<string, YouTubeEmote> = {};
   const categoryById = new Map<string, YouTubeEmoteCategory>();
   const youtubeUnicodeEmojiIds = new Set<string>();
+
+  // Semeia sempre o conjunto global oficial. A coleta da página da live é
+  // apenas um complemento para emotes específicos do canal e aliases novos.
+  for (const emote of youtubeGlobalEmotes) {
+    emotes[emote.shortcut] = {
+      id: emote.id,
+      shortcut: emote.shortcut,
+      aliases: [emote.shortcut],
+      url: emote.url,
+      custom: false,
+      category: "official",
+    };
+  }
+
   const watchUrl =
     `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en&gl=US`;
 
-  const watch = await fetchYouTubeHtml(watchUrl);
-  const watchInitialData = initialDataFromHtml(watch.html);
-  const watchCfg = extractYtcfg(watch.html);
+  let watchInitialData: any = null;
+  let watchCfg: Record<string, any> = {};
+  try {
+    const watch = await fetchYouTubeHtml(watchUrl);
+    watchInitialData = initialDataFromHtml(watch.html);
+    watchCfg = extractYtcfg(watch.html);
 
-  if (watchInitialData) {
-    collectEmojiObjects(watchInitialData, emotes);
-    collectPickerCategories(watchInitialData, categoryById, youtubeUnicodeEmojiIds);
+    if (watchInitialData) {
+      collectEmojiObjects(watchInitialData, emotes);
+      collectPickerCategories(watchInitialData, categoryById, youtubeUnicodeEmojiIds);
+    }
+  } catch (error) {
+    console.warn("[youtube-emotes] watch bootstrap failed; using global fallback", {
+      videoId: videoId.slice(0, 6),
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 
   // O /live_chat é a fonte principal do seletor de emotes e também
@@ -490,20 +513,6 @@ export async function getYouTubeLiveEmotes(
       // Uma continuação pode ser Top Chat e outra Live Chat. Uma falha não
       // impede que as demais forneçam o catálogo.
     }
-  }
-
-  // O catálogo global oficial do YouTube é conhecido e estável o bastante
-  // para servir como fallback quando a resposta anônima omite o picker.
-  for (const emote of youtubeGlobalEmotes) {
-    const value: YouTubeEmote = {
-      id: emote.id,
-      shortcut: emote.shortcut,
-      aliases: [emote.shortcut],
-      url: emote.url,
-      custom: false,
-      category: "official",
-    };
-    if (!emotes[emote.shortcut]) emotes[emote.shortcut] = value;
   }
 
   const uniqueEmotes = new Map<string, YouTubeEmote>();
