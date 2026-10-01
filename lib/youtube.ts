@@ -8,8 +8,67 @@ function youtubeApiKey() {
 
 function normalizeYouTubeInput(input: string) {
   const value = input.trim();
-  const match = value.match(/youtube\.com\/(?:@|c\/|user\/|channel\/)?([^/?#]+)/i);
+  const channelMatch = value.match(/youtube\.com\/channel\/(UC[A-Za-z0-9_-]+)/i);
+  if (channelMatch?.[1]) return channelMatch[1];
+  const match = value.match(/youtube\.com\/(?:@|c\/|user\/)?([^/?#]+)/i);
   return (match?.[1] || value).replace(/^@/, "").trim();
+}
+
+export function isYouTubeQuotaError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /quota|quotaExceeded|exceeded your quota/i.test(message);
+}
+
+function decodeHtml(value: string) {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+async function resolveYouTubeChannelFromPage(input: string) {
+  const value = normalizeYouTubeInput(input);
+  if (!value) return null;
+
+  const pageUrl = value.startsWith("UC")
+    ? "https://www.youtube.com/channel/" + encodeURIComponent(value)
+    : "https://www.youtube.com/@" + encodeURIComponent(value);
+
+  const res = await fetch(pageUrl, {
+    cache: "no-store",
+    redirect: "follow",
+    headers: {
+      Accept: "text/html,application/xhtml+xml",
+      "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+      "User-Agent": "Mozilla/5.0 (compatible; aCHATado/1.0; +https://achatado.onrender.com)",
+    },
+  });
+  if (!res.ok) return null;
+
+  const html = await res.text();
+  const channelId =
+    html.match(/"externalId"\s*:\s*"(UC[A-Za-z0-9_-]+)"/)?.[1] ||
+    html.match(/"channelId"\s*:\s*"(UC[A-Za-z0-9_-]+)"/)?.[1] ||
+    html.match(/youtube\.com\/channel\/(UC[A-Za-z0-9_-]+)/i)?.[1] ||
+    (value.startsWith("UC") ? value : "");
+
+  if (!channelId) return null;
+
+  const title =
+    html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    html.match(/"channelMetadataRenderer"\s*:\s*\{[^{}]{0,3000}?"title"\s*:\s*"([^"]+)"/)?.[1] ||
+    value;
+  const avatar =
+    html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    null;
+
+  return {
+    channelId: String(channelId),
+    channelName: decodeHtml(String(title)),
+    avatar: avatar ? decodeHtml(String(avatar)) : null,
+  };
 }
 
 async function youtubeJson(url: URL) {
@@ -20,42 +79,63 @@ async function youtubeJson(url: URL) {
 }
 
 export async function resolveYouTubeChannel(input: string): Promise<ResolvedChannel> {
-  const key = youtubeApiKey();
   const value = normalizeYouTubeInput(input);
   if (!value) throw new Error("Informe o username ou @handle do canal do YouTube.");
 
-  const url = new URL("https://www.googleapis.com/youtube/v3/channels");
-  url.searchParams.set("part", "snippet,contentDetails");
-  url.searchParams.set("key", key);
+  let basic = await resolveYouTubeChannelFromPage(input).catch(() => null);
 
-  if (value.startsWith("UC") && value.length >= 20) {
-    url.searchParams.set("id", value);
-  } else {
-    url.searchParams.set("forHandle", value);
+  if (!basic) {
+    const key = youtubeApiKey();
+    const url = new URL("https://www.googleapis.com/youtube/v3/channels");
+    url.searchParams.set("part", "snippet,contentDetails");
+    url.searchParams.set("key", key);
+
+    if (value.startsWith("UC") && value.length >= 20) {
+      url.searchParams.set("id", value);
+    } else {
+      url.searchParams.set("forHandle", value);
+    }
+
+    let json = await youtubeJson(url);
+    if (!json?.items?.[0] && !value.startsWith("UC")) {
+      url.searchParams.delete("forHandle");
+      url.searchParams.set("forUsername", value);
+      json = await youtubeJson(url);
+    }
+
+    const channel = json?.items?.[0];
+    if (!channel) throw new Error("Canal do YouTube não encontrado.");
+    basic = {
+      channelId: String(channel.id),
+      channelName: channel.snippet?.title || value,
+      avatar: channel.snippet?.thumbnails?.default?.url || null,
+    };
   }
 
-  let json = await youtubeJson(url);
-  if (!json?.items?.[0] && !value.startsWith("UC")) {
-    url.searchParams.delete("forHandle");
-    url.searchParams.set("forUsername", value);
-    json = await youtubeJson(url);
+  let live = null;
+  let quotaLimited = false;
+  try {
+    live = await findActiveYouTubeLive(basic.channelId);
+  } catch (error) {
+    if (isYouTubeQuotaError(error)) quotaLimited = true;
+    else throw error;
   }
 
-  const channel = json?.items?.[0];
-  if (!channel) throw new Error(`Canal do YouTube “${input}” não encontrado.`);
-
-  const live = await findActiveYouTubeLive(String(channel.id));
   return {
     platform: "youtube",
     input,
-    channelId: String(channel.id),
-    channelName: channel.snippet?.title || value,
-    avatar: channel.snippet?.thumbnails?.default?.url || null,
+    channelId: basic.channelId,
+    channelName: basic.channelName,
+    avatar: basic.avatar,
     live: Boolean(live?.liveChatId),
     liveChatId: live?.liveChatId || null,
     videoId: live?.videoId || null,
     subscriptionReady: true,
-    note: live?.liveChatId ? "Live encontrada e chat integrado." : "Canal identificado; nenhuma live com chat está ativa agora.",
+    note: live?.liveChatId
+      ? "Live encontrada e chat integrado."
+      : quotaLimited
+        ? "Canal identificado. A cota da API do YouTube está temporariamente esgotada; a integração tentará novamente automaticamente."
+        : "Canal identificado; nenhuma live com chat está ativa agora.",
   };
 }
 
