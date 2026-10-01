@@ -129,10 +129,16 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [ready, setReady] = useState(false);
+  const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+  const [unseenMessageCount, setUnseenMessageCount] = useState(0);
   const lastId = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const autoResolveAfterAuth = useRef(false);
+  const autoScrollPausedRef = useRef(false);
+  const autoScrollingRef = useRef(false);
+  const previousMessageCountRef = useRef(0);
 
   async function loadAuth() {
     const res = await fetch("/api/auth/status", { cache: "no-store" });
@@ -336,6 +342,10 @@ export default function Home() {
     if (!ready) return;
     setMessages([]);
     lastId.current = 0;
+    previousMessageCountRef.current = 0;
+    autoScrollPausedRef.current = false;
+    setAutoScrollPaused(false);
+    setUnseenMessageCount(0);
     loadMessages(true);
 
     const events = new EventSource("/api/events");
@@ -480,9 +490,70 @@ export default function Home() {
     resolveChannels();
   }, [ready, auth.twitch.connected, auth.kick.connected, auth.youtube.connected]);
 
+  function setAutoScrollState(paused: boolean) {
+    autoScrollPausedRef.current = paused;
+    setAutoScrollPaused(paused);
+    if (!paused) setUnseenMessageCount(0);
+  }
+
+  function scrollToLatest(behavior: ScrollBehavior = "smooth") {
+    const list = messageListRef.current;
+    if (!list) return;
+
+    autoScrollingRef.current = true;
+    setAutoScrollState(false);
+    list.scrollTo({ top: list.scrollHeight, behavior });
+
+    if (behavior === "smooth") {
+      window.setTimeout(() => {
+        autoScrollingRef.current = false;
+        const current = messageListRef.current;
+        if (current) current.scrollTop = current.scrollHeight;
+      }, 450);
+    } else {
+      requestAnimationFrame(() => {
+        autoScrollingRef.current = false;
+      });
+    }
+  }
+
+  function handleMessageListScroll() {
+    const list = messageListRef.current;
+    if (!list || autoScrollingRef.current) return;
+
+    const distanceFromBottom =
+      list.scrollHeight - list.scrollTop - list.clientHeight;
+    const isNearBottom = distanceFromBottom <= 72;
+
+    if (isNearBottom) {
+      if (autoScrollPausedRef.current) setAutoScrollState(false);
+      return;
+    }
+
+    if (!autoScrollPausedRef.current) {
+      setAutoScrollState(true);
+    }
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, filter]);
+    const previous = previousMessageCountRef.current;
+    const added = Math.max(0, messages.length - previous);
+    previousMessageCountRef.current = messages.length;
+
+    if (autoScrollPausedRef.current) {
+      if (added > 0) {
+        setUnseenMessageCount((count) => count + added);
+      }
+      return;
+    }
+
+    requestAnimationFrame(() => scrollToLatest("auto"));
+  }, [messages.length]);
+
+  useEffect(() => {
+    previousMessageCountRef.current = messages.length;
+    requestAnimationFrame(() => scrollToLatest("auto"));
+  }, [filter]);
 
   const visible = useMemo(
     () => messages.filter((m) => filter === "all" || m.platform === filter),
@@ -1022,7 +1093,31 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="messageList">
+          {autoScrollPaused && (
+            <button
+              type="button"
+              className="jumpLatestButton"
+              onClick={() => scrollToLatest("smooth")}
+              aria-label={
+                unseenMessageCount
+                  ? `Voltar às mensagens mais novas. ${unseenMessageCount} novas mensagens.`
+                  : "Voltar às mensagens mais novas."
+              }
+              title="Voltar às mensagens mais novas"
+            >
+              <span aria-hidden="true">↓</span>
+              <b>Ver mensagens mais novas</b>
+              {unseenMessageCount > 0 && (
+                <i>{unseenMessageCount > 99 ? "99+" : unseenMessageCount}</i>
+              )}
+            </button>
+          )}
+
+          <div
+            className="messageList"
+            ref={messageListRef}
+            onScroll={handleMessageListScroll}
+          >
             {visible.map((m) => (
               <article className="message" key={`${m.platform}-${m.platform_message_id}`}>
                 <div className={`avatarRing ${m.platform}`}>
