@@ -53,16 +53,12 @@ function normalizeUrl(url: unknown) {
   return url;
 }
 
-function emoteKey(emote: ThirdPartyEmote) {
-  return `${emote.provider}:${emote.scope}:${emote.code}`;
-}
-
 function addEmote(
   target: Record<string, ThirdPartyEmote>,
   emote: ThirdPartyEmote | null,
 ) {
   if (!emote?.code || !emote.url) return;
-  target[emoteKey(emote)] = emote;
+  target[emote.code] = emote;
 }
 
 function parseBttv(emote: any, scope: EmoteScope): ThirdPartyEmote | null {
