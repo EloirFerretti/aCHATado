@@ -3,6 +3,7 @@ import { refreshPlatformSession } from "@/lib/platform-auth";
 import { readPlatformSession } from "@/lib/session";
 import { insertMessage } from "@/lib/store";
 import type { PlatformSession } from "@/lib/types";
+import { getTwitchUserProfiles } from "@/lib/twitch-users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,13 +129,18 @@ function connect(entry: Entry, url?: string, transferred = false) {
       const e = payload?.payload?.event;
       if (!e?.message_id) return;
 
+      const chatterId = e.chatter_user_id ? String(e.chatter_user_id) : "";
+      const profile = chatterId
+        ? (await getTwitchUserProfiles([chatterId])).get(chatterId)
+        : null;
+
       await insertMessage({
         platform: "twitch",
         platform_message_id: String(e.message_id),
         channel_id: e.broadcaster_user_id ? String(e.broadcaster_user_id) : entry.channelId,
-        author_id: e.chatter_user_id ? String(e.chatter_user_id) : null,
-        author_name: e.chatter_user_name || e.chatter_user_login || "Twitch user",
-        author_avatar: null,
+        author_id: chatterId || null,
+        author_name: e.chatter_user_name || e.chatter_user_login || profile?.displayName || "Twitch user",
+        author_avatar: profile?.avatar || null,
         author_color: e.color || null,
         message: e.message?.text || "",
         message_type: "text",
