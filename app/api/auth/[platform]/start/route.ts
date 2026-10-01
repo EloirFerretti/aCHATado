@@ -38,7 +38,7 @@ export async function GET(
       authorizeUrl.searchParams.set("client_id", process.env.TWITCH_CLIENT_ID);
       authorizeUrl.searchParams.set("redirect_uri", redirectUri);
       authorizeUrl.searchParams.set("response_type", "code");
-      authorizeUrl.searchParams.set("scope", "user:write:chat user:read:chat");
+      authorizeUrl.searchParams.set("scope", "user:write:chat user:read:chat user:read:emotes");
       authorizeUrl.searchParams.set("state", state);
       authorizeUrl.searchParams.set("force_verify", "false");
     } else if (platform === "kick") {
