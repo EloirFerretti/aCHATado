@@ -186,6 +186,7 @@ a { color: inherit; text-decoration: none; }
 .sidebarChannels .mergeButton {
   width: 100%;
   min-height: 36px;
+  margin-top: 10px;
 }
 .sidebarChannels + .sidebarTitle {
   padding-top: 0;
