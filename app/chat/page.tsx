@@ -21,6 +21,12 @@ type TwitchBadgeCatalogEntry = {
   imageUrl: string;
 };
 
+type KickSubscriberBadge = {
+  id: number;
+  months: number;
+  imageUrl: string;
+};
+
 type Message = {
   id?: number;
   platform: Platform;
@@ -171,6 +177,7 @@ export default function Home() {
   const [thirdPartyEmotes, setThirdPartyEmotes] = useState<Record<string, EmoteDefinition>>({});
   const [youtubeEmotes, setYoutubeEmotes] = useState<Record<string, YouTubeEmote>>({});
   const [twitchBadgeCatalog, setTwitchBadgeCatalog] = useState<Record<string, TwitchBadgeCatalogEntry>>({});
+  const [kickSubscriberBadges, setKickSubscriberBadges] = useState<KickSubscriberBadge[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerEmotes, setPickerEmotes] = useState<PickerEmote[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
@@ -355,6 +362,53 @@ export default function Home() {
       cancelled = true;
     };
   }, [ready, channels.twitch?.channelId]);
+
+  useEffect(() => {
+    const slug = channels.kick?.channelName;
+    if (!ready || !slug) {
+      setKickSubscriberBadges([]);
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`/api/kick/badges?slug=${encodeURIComponent(slug)}`, {
+      cache: "no-store",
+    })
+      .then(async (res) =>
+        res.ok
+          ? res.json()
+          : Promise.reject(new Error("Falha ao carregar badges de inscrito da Kick")),
+      )
+      .then((json) => {
+        if (!cancelled) {
+          const badges = Array.isArray(json.badges) ? json.badges : [];
+          setKickSubscriberBadges(
+            badges
+              .map((badge: any) => ({
+                id: Number(badge.id || 0),
+                months: Number(badge.months || 0),
+                imageUrl: String(badge.imageUrl || ""),
+              }))
+              .filter(
+                (badge: KickSubscriberBadge) =>
+                  badge.id > 0 && badge.months > 0 && Boolean(badge.imageUrl),
+              )
+              .sort(
+                (a: KickSubscriberBadge, b: KickSubscriberBadge) =>
+                  a.months - b.months,
+              ),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setKickSubscriberBadges([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, channels.kick?.channelName]);
+
 
   useEffect(() => {
     const videoId = channels.youtube?.videoId;
@@ -1052,6 +1106,20 @@ export default function Home() {
     return parts.length ? parts : message.message;
   }
 
+  function kickSubscriberBadgeForCount(count: number | null) {
+    if (!kickSubscriberBadges.length) return null;
+
+    const months = Math.max(1, Number(count || 1));
+    let selected = kickSubscriberBadges[0];
+
+    for (const badge of kickSubscriberBadges) {
+      if (badge.months <= months) selected = badge;
+      else break;
+    }
+
+    return selected;
+  }
+
   function kickBadgeAsset(type: string) {
     const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
     const assets: Record<string, string> = {
@@ -1158,7 +1226,11 @@ export default function Home() {
                 ? badge.count
                 : null;
 
-            const asset = kickBadgeAsset(type);
+            const subscriberBadge =
+              type === "subscriber"
+                ? kickSubscriberBadgeForCount(count)
+                : null;
+            const asset = subscriberBadge?.imageUrl || kickBadgeAsset(type);
 
             if (asset) {
               return (
@@ -1167,8 +1239,16 @@ export default function Home() {
                   key={`${type}-${index}`}
                   src={asset}
                   alt=""
-                  title={label}
-                  aria-label={label}
+                  title={
+                    subscriberBadge
+                      ? `${label} · badge de ${subscriberBadge.months} ${subscriberBadge.months === 1 ? "mês" : "meses"}`
+                      : label
+                  }
+                  aria-label={
+                    subscriberBadge
+                      ? `${label}, badge de ${subscriberBadge.months} ${subscriberBadge.months === 1 ? "mês" : "meses"}`
+                      : label
+                  }
                   loading="eager"
                 />
               );
