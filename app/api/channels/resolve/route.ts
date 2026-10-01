@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveKickChannel, resolveTwitchChannel, resolveYouTubeChannel } from "@/lib/channels";
 import { refreshPlatformSession } from "@/lib/platform-auth";
 import { readPlatformSession, writePlatformSession } from "@/lib/session";
+import { setState } from "@/lib/store";
 import type { Platform, ResolvedChannel } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -29,8 +30,19 @@ export async function POST(req: NextRequest) {
     catch (error) { errors.kick = error instanceof Error ? error.message : "Falha ao identificar canal da Kick."; }
   }
   if (requested.youtube?.trim()) {
-    try { channels.youtube = await resolveYouTubeChannel(requested.youtube); }
-    catch (error) { errors.youtube = error instanceof Error ? error.message : "Falha ao identificar canal do YouTube."; }
+    try {
+      channels.youtube = await resolveYouTubeChannel(requested.youtube);
+      const youtube = channels.youtube;
+      if (youtube?.channelId) {
+        await setState(`youtube-channel:${youtube.channelId}`, {
+          liveChatId: youtube.liveChatId || null,
+          videoId: youtube.videoId || null,
+          nextResolveAt: Date.now() + (youtube.liveChatId ? 30 * 60_000 : 2 * 60_000),
+        });
+      }
+    } catch (error) {
+      errors.youtube = error instanceof Error ? error.message : "Falha ao identificar canal do YouTube.";
+    }
   }
 
   const response = NextResponse.json({ channels, errors });
