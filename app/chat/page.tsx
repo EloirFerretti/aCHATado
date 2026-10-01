@@ -600,6 +600,26 @@ export default function Home() {
         if (cancelled) return;
         setPickerEmotes(Array.isArray(json.emotes) ? json.emotes : []);
         setPickerScopeUpgradeRequired(Boolean(json.scopeUpgradeRequired));
+
+        if (
+          selected === "youtube" &&
+          json.videoId &&
+          json.videoId !== channels.youtube?.videoId
+        ) {
+          setChannels((prev) => {
+            const current = prev.youtube;
+            if (!current) return prev;
+            const next = {
+              ...prev,
+              youtube: {
+                ...current,
+                videoId: String(json.videoId),
+              },
+            };
+            localStorage.setItem("achatado_channels", JSON.stringify(next));
+            return next;
+          });
+        }
       })
       .catch(() => {
         if (!cancelled) setPickerEmotes([]);
