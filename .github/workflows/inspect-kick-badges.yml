@@ -1,5 +1,8 @@
 name: Inspect official Kick badge assets
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
@@ -141,7 +144,7 @@ jobs:
 
           js = Path("kick-inspection/kick-gift-bundle.js").read_text(encoding="utf-8")
           found = {}
-          for m in re.finditer(r'name:"Gift(\\d+)",viewBox:"([^"]+)",body:\'([^\']*)\'', js):
+          for m in re.finditer(r'name:"Gift(\d+)",viewBox:"([^"]+)",body:\'([^\']*)\'', js):
               qty = int(m.group(1))
               viewbox = m.group(2)
               body = m.group(3)
@@ -164,6 +167,19 @@ jobs:
           print("official GiftBadge quantities:", sorted(found))
           print("count:", len(found))
           PY
+
+      - name: Commit extracted official badges
+        run: |
+          test "$(find kick-inspection/official-sub-gifter -type f -name '*.svg' | wc -l)" -eq 28
+          mkdir -p public/badges/kick
+          cp kick-inspection/official-sub-gifter/*.svg public/badges/kick/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/badges/kick/sub-gifter-*.svg
+          if ! git diff --cached --quiet; then
+            git commit -m "Extract official Kick Sub Gifter badges"
+            git push origin HEAD:kick-official-badge-scrape
+          fi
 
       - name: Print badge-related findings
         run: |
