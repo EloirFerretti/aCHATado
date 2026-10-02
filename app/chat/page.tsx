@@ -456,7 +456,7 @@ export default function Home() {
   const [popupMode, setPopupMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState<UserProfileTarget | null>(null);
-  const [resolving, setResolving] = useState(false);
+  const [resolvingPlatform, setResolvingPlatform] = useState<Platform | null>(null);
   const [ready, setReady] = useState(false);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
@@ -466,7 +466,7 @@ export default function Home() {
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
   const composerEditorRef = useRef<HTMLDivElement | null>(null);
-  const autoResolveAfterAuth = useRef(false);
+  const autoResolveAfterAuth = useRef<Platform | null>(null);
   const autoScrollPausedRef = useRef(false);
   const autoScrollingRef = useRef(false);
   const autoScrollFrameRef = useRef<number | null>(null);
@@ -554,39 +554,75 @@ export default function Home() {
     }
   }
 
-  async function resolveChannels() {
-    setResolving(true);
-    setChannelErrors({});
+  async function resolveChannel(platform: Platform) {
+    const input = channelInputs[platform].trim();
+    if (!input || resolvingPlatform) return;
+
+    setResolvingPlatform(platform);
+    setChannelErrors((previous) => ({ ...previous, [platform]: undefined }));
     setError("");
+
+    const requested = {
+      ...channelInputs,
+      [platform]: input,
+    };
+    localStorage.setItem("achatado_channel_inputs", JSON.stringify(requested));
+
     try {
-      const requested = Object.fromEntries(platforms.map((p) => [p, channelInputs[p].trim()]));
-      localStorage.setItem("achatado_channel_inputs", JSON.stringify(requested));
-
-      if (!platforms.some((p) => requested[p])) {
-        setChannels({});
-        localStorage.removeItem("achatado_channels");
-        return;
-      }
-
       const res = await fetch("/api/channels/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channels: requested }),
+        body: JSON.stringify({
+          channels: { [platform]: input },
+        }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Não foi possível identificar os canais.");
+      if (!res.ok) {
+        throw new Error(
+          json.error || `Não foi possível identificar o canal da ${labels[platform]}.`,
+        );
+      }
 
-      const next: ChannelMap = json.channels || {};
-      setChannels(next);
-      setChannelErrors(json.errors || {});
-      localStorage.setItem("achatado_channels", JSON.stringify(next));
-      setMessages([]);
-      setReplyingTo(null);
-      lastId.current = 0;
+      const resolved = json.channels?.[platform] as ResolvedChannel | undefined;
+      const platformError = json.errors?.[platform] as string | undefined;
+
+      if (platformError || !resolved) {
+        setChannelErrors((previous) => ({
+          ...previous,
+          [platform]:
+            platformError ||
+            `Não foi possível identificar o canal da ${labels[platform]}.`,
+        }));
+        return;
+      }
+
+      setChannels((previous) => {
+        const next = {
+          ...previous,
+          [platform]: resolved,
+        };
+        localStorage.setItem("achatado_channels", JSON.stringify(next));
+        return next;
+      });
+
+      setChannelErrors((previous) => ({
+        ...previous,
+        [platform]: undefined,
+      }));
+      setReplyingTo((current) =>
+        current?.platform === platform ? null : current,
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao identificar os canais.");
+      const message =
+        err instanceof Error
+          ? err.message
+          : `Falha ao identificar o canal da ${labels[platform]}.`;
+      setChannelErrors((previous) => ({
+        ...previous,
+        [platform]: message,
+      }));
     } finally {
-      setResolving(false);
+      setResolvingPlatform(null);
     }
   }
 
@@ -606,7 +642,14 @@ export default function Home() {
 
     const authError = query.get("auth_error");
     if (authError) setError(authError);
-    if (query.get("connected")) autoResolveAfterAuth.current = true;
+    const connectedPlatform = query.get("connected");
+    if (
+      connectedPlatform === "twitch" ||
+      connectedPlatform === "kick" ||
+      connectedPlatform === "youtube"
+    ) {
+      autoResolveAfterAuth.current = connectedPlatform;
+    }
     if (authError || query.get("connected")) {
       query.delete("auth_error");
       query.delete("connected");
@@ -1251,10 +1294,20 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready || !autoResolveAfterAuth.current) return;
-    if (!platforms.some((p) => channelInputs[p].trim())) return;
-    autoResolveAfterAuth.current = false;
-    resolveChannels();
-  }, [ready, auth.twitch.connected, auth.kick.connected, auth.youtube.connected]);
+    const platform = autoResolveAfterAuth.current;
+    if (!channelInputs[platform].trim()) {
+      autoResolveAfterAuth.current = null;
+      return;
+    }
+    autoResolveAfterAuth.current = null;
+    resolveChannel(platform);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    ready,
+    auth.twitch.connected,
+    auth.kick.connected,
+    auth.youtube.connected,
+  ]);
 
   function setAutoScrollState(paused: boolean) {
     autoScrollPausedRef.current = paused;
@@ -1604,10 +1657,24 @@ export default function Home() {
   }
 
   function updateChannelInput(platform: Platform, value: string) {
-    setChannelInputs((prev) => ({ ...prev, [platform]: value }));
-    setChannelErrors((prev) => ({ ...prev, [platform]: undefined }));
-    if (channels[platform]?.input !== value) {
-      setChannels((prev) => ({ ...prev, [platform]: undefined }));
+    setChannelInputs((previous) => {
+      const next = { ...previous, [platform]: value };
+      localStorage.setItem("achatado_channel_inputs", JSON.stringify(next));
+      return next;
+    });
+    setChannelErrors((previous) => ({
+      ...previous,
+      [platform]: undefined,
+    }));
+
+    const current = channels[platform];
+    if (current && current.input !== value) {
+      setChannels((previous) => {
+        const next = { ...previous };
+        delete next[platform];
+        localStorage.setItem("achatado_channels", JSON.stringify(next));
+        return next;
+      });
     }
   }
 
@@ -2410,7 +2477,10 @@ export default function Home() {
                               value={channelInputs[p]}
                               onChange={(e) => updateChannelInput(p, e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === "Enter") resolveChannels();
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  resolveChannel(p);
+                                }
                               }}
                               placeholder={placeholders[p]}
                               aria-label={`Canal da ${labels[p]}`}
@@ -2435,14 +2505,27 @@ export default function Home() {
                             ) : (
                               <div className="channelHint">Nenhum canal selecionado.</div>
                             )}
+
+                            <button
+                              type="button"
+                              className={`mergeButton channelConnectButton ${p}`}
+                              onClick={() => resolveChannel(p)}
+                              disabled={
+                                !channelInputs[p].trim() ||
+                                resolvingPlatform !== null
+                              }
+                            >
+                              {resolvingPlatform === p
+                                ? "Identificando…"
+                                : channel
+                                  ? "Atualizar canal"
+                                  : `Conectar ${labels[p]}`}
+                            </button>
                           </div>
                         );
                       })}
                     </div>
-        
-                    <button className="mergeButton" onClick={resolveChannels} disabled={resolving}>
-                      {resolving ? "Identificando…" : "Identificar e mesclar"}
-                    </button>
+
                   </section>
         
                   <div className="sidebarTitle">EXIBIR MENSAGENS</div>
