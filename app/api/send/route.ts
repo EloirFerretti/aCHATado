@@ -17,12 +17,22 @@ export async function POST(req: NextRequest) {
     const platform = payload.platform;
     const message = typeof payload.message === "string" ? payload.message.trim() : "";
     const channelId = typeof payload.channelId === "string" ? payload.channelId.trim() : "";
+    const replyToMessageId =
+      typeof payload.replyToMessageId === "string"
+        ? payload.replyToMessageId.trim()
+        : "";
     let liveChatId = typeof payload.liveChatId === "string" ? payload.liveChatId.trim() : "";
     let youtubeVideoId = "";
 
     if (!isPlatform(platform)) return NextResponse.json({ error: "Plataforma inválida" }, { status: 400 });
     if (!message) return NextResponse.json({ error: "Digite uma mensagem" }, { status: 400 });
     if (!channelId) return NextResponse.json({ error: `Selecione primeiro o canal da ${platform}.` }, { status: 400 });
+    if (replyToMessageId && platform === "youtube") {
+      return NextResponse.json(
+        { error: "O YouTube Live Chat não oferece respostas nativas pela API." },
+        { status: 400 },
+      );
+    }
     const max = platform === "youtube" ? 200 : 500;
     if ([...message].length > max) {
       return NextResponse.json({ error: `Limite de ${max} caracteres para ${platform}.` }, { status: 400 });
@@ -52,7 +62,14 @@ export async function POST(req: NextRequest) {
           "Client-Id": process.env.TWITCH_CLIENT_ID || "",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ broadcaster_id: channelId, sender_id: session.userId, message }),
+        body: JSON.stringify({
+          broadcaster_id: channelId,
+          sender_id: session.userId,
+          message,
+          ...(replyToMessageId
+            ? { reply_parent_message_id: replyToMessageId }
+            : {}),
+        }),
       });
     } else if (platform === "kick") {
       upstream = await fetch("https://api.kick.com/public/v1/chat", {
@@ -61,7 +78,14 @@ export async function POST(req: NextRequest) {
           Authorization: `Bearer ${session.accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ broadcaster_user_id: Number(channelId), content: message, type: "user" }),
+        body: JSON.stringify({
+          broadcaster_user_id: Number(channelId),
+          content: message,
+          type: "user",
+          ...(replyToMessageId
+            ? { reply_to_message_id: replyToMessageId }
+            : {}),
+        }),
       });
     } else {
       const stateKey = `youtube-channel:${channelId}`;
