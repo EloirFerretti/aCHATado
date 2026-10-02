@@ -1,0 +1,167 @@
+name: Inspect official Kick level badge SVGs
+
+on:
+  push:
+    branches:
+      - kick-level-badge-scrape
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Capture Kick level SVGs and source bundles
+        run: |
+          cat > /tmp/capture-kick-levels.mjs <<'EOF'
+          import { chromium } from "playwright";
+          import fs from "node:fs/promises";
+          import path from "node:path";
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            viewport: { width: 1440, height: 1000 },
+          });
+          const page = await context.newPage();
+
+          await fs.mkdir("kick-level-inspection/bundles", { recursive: true });
+          await fs.mkdir("kick-level-inspection/svgs", { recursive: true });
+
+          const bundleUrls = new Set();
+          const matchingBundles = [];
+          const seenResponses = new Set();
+
+          page.on("response", async (response) => {
+            const url = response.url();
+            if (seenResponses.has(url)) return;
+            seenResponses.add(url);
+            if (!/assets\.kick\.com\/main\/_next\/static\/chunks\/.*\.js/i.test(url)) return;
+            try {
+              const text = await response.text();
+              if (!/Level(?:1|10|20|25|30|40|50)\b/.test(text)) return;
+              bundleUrls.add(url);
+              const filename = new URL(url).pathname.split("/").pop() || "bundle.js";
+              await fs.writeFile(path.join("kick-level-inspection/bundles", filename), text);
+              matchingBundles.push({ url, filename, bytes: Buffer.byteLength(text) });
+              console.log("saved bundle", filename, Buffer.byteLength(text));
+            } catch (error) {
+              console.error("bundle read failed", url, String(error));
+            }
+          });
+
+          const levels = new Map();
+
+          async function harvest() {
+            const found = await page.locator('svg[data-ds-icon^="Level"]').evaluateAll((nodes) =>
+              nodes.map((node) => ({
+                icon: node.getAttribute("data-ds-icon") || "",
+                svg: node.outerHTML,
+              }))
+            ).catch(() => []);
+            for (const item of found) {
+              const match = item.icon.match(/^Level(\d+)$/);
+              if (!match) continue;
+              const level = Number(match[1]);
+              if (!levels.has(level)) {
+                levels.set(level, item.svg);
+                console.log("captured level", level);
+              }
+            }
+          }
+
+          const seeds = ["https://kick.com/xqc", "https://kick.com/"];
+          for (const url of seeds) {
+            try {
+              await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
+              await page.waitForTimeout(5000);
+              await harvest();
+
+              for (let i = 0; i < 6; i++) {
+                await page.waitForTimeout(2500);
+                await harvest();
+              }
+
+              if (url.endsWith("/")) {
+                const hrefs = await page.locator('a[href^="/"]').evaluateAll((nodes) =>
+                  [...new Set(nodes.map((a) => a.getAttribute("href") || ""))]
+                    .filter((href) => /^\/[a-zA-Z0-9_-]{2,40}$/.test(href))
+                    .filter((href) => ![
+                      "/login","/signup","/browse","/categories","/following","/subscriptions",
+                      "/dashboard","/search","/settings","/about","/privacy","/terms"
+                    ].includes(href))
+                    .slice(0, 12)
+                ).catch(() => []);
+
+                for (const href of hrefs) {
+                  try {
+                    await page.goto("https://kick.com" + href, { waitUntil: "domcontentloaded", timeout: 45000 });
+                    await page.waitForTimeout(3500);
+                    await harvest();
+                  } catch {}
+                  if (levels.size >= 50) break;
+                }
+              }
+            } catch (error) {
+              console.error("navigation failed", url, String(error));
+            }
+          }
+
+          for (const [level, rawSvg] of [...levels.entries()].sort((a,b) => a[0]-b[0])) {
+            // Make the captured inline SVG standalone while preserving the official paths/gradients.
+            let svg = rawSvg
+              .replace(/ class="[^"]*"/g, "")
+              .replace(/ aria-labelledby="[^"]*"/g, "")
+              .replace(/<title id="[^"]*">/g, "<title>")
+              .replace(/ data-ds-icon="[^"]*"/g, "")
+              .replace(/ role="img"/g, "")
+              .replace(/ width="20"/g, "")
+              .replace(/ height="20"/g, "");
+
+            // React-generated gradient IDs are different per render. Normalize them inside each SVG.
+            const ids = [...svg.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
+            ids.forEach((id, index) => {
+              const safe = "kick-level-gradient-" + level + "-" + index;
+              svg = svg.split(id).join(safe);
+            });
+            if (!svg.includes('xmlns=')) {
+              svg = svg.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
+            }
+            await fs.writeFile(
+              `kick-level-inspection/svgs/level-${String(level).padStart(2,"0")}.svg`,
+              svg + "\n",
+            );
+          }
+
+          await fs.writeFile(
+            "kick-level-inspection/summary.json",
+            JSON.stringify({
+              capturedLevels: [...levels.keys()].sort((a,b)=>a-b),
+              matchingBundles,
+              bundleUrls: [...bundleUrls],
+            }, null, 2)
+          );
+
+          console.log("captured levels", [...levels.keys()].sort((a,b)=>a-b));
+          console.log("matching bundles", matchingBundles);
+          await browser.close();
+          EOF
+          node /tmp/capture-kick-levels.mjs
+
+      - name: Print findings
+        run: |
+          cat kick-level-inspection/summary.json
+          find kick-level-inspection/svgs -type f -maxdepth 1 -print | sort
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kick-level-badge-inspection
+          path: kick-level-inspection
+          if-no-files-found: error
