@@ -2638,6 +2638,18 @@ export default function Home() {
                 ⌫
                 <span>Limpar</span>
               </button>
+              {!popupMode && (
+                <button
+                  type="button"
+                  className="chatUtilityButton mobileSettingsButton"
+                  onClick={() => setSettingsOpen(true)}
+                  title="Configurações"
+                  aria-label="Abrir configurações do chat"
+                >
+                  ⚙
+                  <span>Configurações</span>
+                </button>
+              )}
               {popupMode ? (
                 <button
                   type="button"
@@ -2652,7 +2664,7 @@ export default function Home() {
               ) : (
                 <button
                   type="button"
-                  className="chatUtilityButton"
+                  className="chatUtilityButton popupLaunchButton"
                   onClick={openChatPopup}
                   title="Abrir chat em popup"
                   aria-label="Abrir chat em uma nova janela"
@@ -3162,7 +3174,7 @@ export default function Home() {
         </div>
       )}
 
-      {popupMode && settingsOpen && (
+      {settingsOpen && (
         <div
           className="popupSettingsOverlay"
           role="presentation"
@@ -3179,7 +3191,7 @@ export default function Home() {
             <div className="popupSettingsHeader">
               <div>
                 <strong id="popup-settings-title">Configurações do chat</strong>
-                <span>Canais, filtros e contas conectadas</span>
+                <span>Canais e contas conectadas</span>
               </div>
               <button
                 type="button"
