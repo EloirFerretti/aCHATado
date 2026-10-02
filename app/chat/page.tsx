@@ -41,6 +41,14 @@ type Message = {
   badges?: MessageBadge[];
   raw?: any;
 };
+
+type ReplyTarget = {
+  platform: "twitch" | "kick";
+  messageId: string;
+  authorName: string;
+  message: string;
+  channelId: string | null;
+};
 type ResolvedChannel = {
   platform: Platform;
   input: string;
@@ -129,6 +137,56 @@ function avatarFallback(name: string) {
   return name.trim().slice(0, 1).toUpperCase() || "?";
 }
 
+function cleanReplyPreview(value: unknown) {
+  return String(value || "")
+    .replace(/\[emote:[^:\]]+:([^\]]+)\]/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function messageReplyInfo(message: Message): ReplyTarget | null {
+  if (message.platform === "twitch") {
+    const reply = message.raw?.reply;
+    const messageId = String(reply?.parent_message_id || "").trim();
+    if (!messageId) return null;
+    return {
+      platform: "twitch",
+      messageId,
+      authorName:
+        String(
+          reply?.parent_user_name ||
+            reply?.parent_user_login ||
+            "Usuário da Twitch",
+        ),
+      message: cleanReplyPreview(reply?.parent_message_body),
+      channelId: message.channel_id || null,
+    };
+  }
+
+  if (message.platform === "kick") {
+    const reply = message.raw?.replies_to;
+    const messageId = String(reply?.message_id || "").trim();
+    if (!messageId) return null;
+    return {
+      platform: "kick",
+      messageId,
+      authorName: String(
+        reply?.sender?.username ||
+          reply?.sender?.channel_slug ||
+          "Usuário da Kick",
+      ),
+      message: cleanReplyPreview(reply?.content),
+      channelId: message.channel_id || null,
+    };
+  }
+
+  return null;
+}
+
+function messageDomId(platform: Platform, messageId: string) {
+  return `chat-message-${platform}-${messageId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
 function profileUrl(message: Message) {
   if (message.platform === "twitch") {
     const login =
@@ -168,6 +226,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [filter, setFilter] = useState<"all" | Platform>("all");
   const [selected, setSelected] = useState<Platform>("twitch");
+  const [replyingTo, setReplyingTo] = useState<ReplyTarget | null>(null);
   const [auth, setAuth] = useState<AuthInfo>(emptyAuth);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -274,6 +333,7 @@ export default function Home() {
       setChannelErrors(json.errors || {});
       localStorage.setItem("achatado_channels", JSON.stringify(next));
       setMessages([]);
+      setReplyingTo(null);
       lastId.current = 0;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao identificar os canais.");
@@ -794,6 +854,37 @@ export default function Home() {
 
   const activeChannelCount = platforms.filter((p) => channels[p]?.channelId).length;
 
+  function beginReply(message: Message) {
+    if (message.platform !== "twitch" && message.platform !== "kick") return;
+
+    setSelected(message.platform);
+    setReplyingTo({
+      platform: message.platform,
+      messageId: message.platform_message_id,
+      authorName: message.author_name,
+      message: cleanReplyPreview(message.message),
+      channelId: message.channel_id || null,
+    });
+    setPickerOpen(false);
+    setError("");
+
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }
+
+  function jumpToMessage(platform: Platform, messageId: string) {
+    const target = document.getElementById(messageDomId(platform, messageId));
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.remove("replyTargetFlash");
+    requestAnimationFrame(() => {
+      target.classList.add("replyTargetFlash");
+      window.setTimeout(() => target.classList.remove("replyTargetFlash"), 1400);
+    });
+  }
+
   async function send(e: FormEvent) {
     e.preventDefault();
     setError("");
@@ -823,6 +914,10 @@ export default function Home() {
           message: text,
           channelId: target.channelId,
           liveChatId: target.liveChatId || undefined,
+          replyToMessageId:
+            replyingTo?.platform === selected
+              ? replyingTo.messageId
+              : undefined,
         }),
       });
       const json = await res.json();
@@ -847,6 +942,7 @@ export default function Home() {
       }
 
       setText("");
+      setReplyingTo(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao enviar mensagem.");
     } finally {
@@ -1515,7 +1611,11 @@ export default function Home() {
           >
             <div className="messageListContent" ref={messageContentRef}>
             {visible.map((m) => (
-              <article className="message" key={`${m.platform}-${m.platform_message_id}`}>
+              <article
+                className="message"
+                id={messageDomId(m.platform, m.platform_message_id)}
+                key={`${m.platform}-${m.platform_message_id}`}
+              >
                 <div className={`avatarRing ${m.platform}`}>
                   {profileUrl(m) ? (
                     <a
@@ -1538,6 +1638,38 @@ export default function Home() {
                   <span className={`miniPlatform ${m.platform}`}>{initials[m.platform]}</span>
                 </div>
                 <div className="messageBody">
+                  {(() => {
+                    const reply = messageReplyInfo(m);
+                    if (!reply) return null;
+                    const parentLoaded = messages.some(
+                      (candidate) =>
+                        candidate.platform === reply.platform &&
+                        candidate.platform_message_id === reply.messageId,
+                    );
+
+                    return (
+                      <button
+                        type="button"
+                        className={`messageReplyContext ${m.platform} ${parentLoaded ? "clickable" : ""}`}
+                        onClick={() => {
+                          if (parentLoaded) {
+                            jumpToMessage(reply.platform, reply.messageId);
+                          }
+                        }}
+                        title={
+                          parentLoaded
+                            ? "Ir para a mensagem original"
+                            : "Mensagem original não está carregada"
+                        }
+                      >
+                        <span aria-hidden="true">↪</span>
+                        <span>
+                          <b>{reply.authorName}</b>
+                          <small>{reply.message || "Mensagem original"}</small>
+                        </span>
+                      </button>
+                    );
+                  })()}
                   <div className="meta">
                     {renderUserBadges(m)}
                     {profileUrl(m) ? (
@@ -1559,6 +1691,17 @@ export default function Home() {
                     )}
                     <span className={`platformLabel ${m.platform}`}>{labels[m.platform]}</span>
                     <time>{timeLabel(m.created_at)}</time>
+                    {(m.platform === "twitch" || m.platform === "kick") && (
+                      <button
+                        type="button"
+                        className="messageReplyAction"
+                        onClick={() => beginReply(m)}
+                        title={`Responder a ${m.author_name}`}
+                        aria-label={`Responder a ${m.author_name}`}
+                      >
+                        ↩ <span>Responder</span>
+                      </button>
+                    )}
                   </div>
                   <p className="chatText">{renderMessageText(m)}</p>
                 </div>
@@ -1589,6 +1732,7 @@ export default function Home() {
                     key={p}
                     onClick={() => {
                       setSelected(p);
+                      if (replyingTo?.platform !== p) setReplyingTo(null);
                       setPickerOpen(false);
                       setError("");
                     }}
@@ -1601,6 +1745,24 @@ export default function Home() {
               </div>
               {selectedTarget && <span className="sendingTo">→ {selectedTarget.channelName}</span>}
             </div>
+
+            {replyingTo && replyingTo.platform === selected && (
+              <div className={`composerReplyPreview ${selected}`}>
+                <span aria-hidden="true">↩</span>
+                <div>
+                  <strong>Respondendo a {replyingTo.authorName}</strong>
+                  <small>{replyingTo.message || "Mensagem"}</small>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyingTo(null)}
+                  aria-label="Cancelar resposta"
+                  title="Cancelar resposta"
+                >
+                  ×
+                </button>
+              </div>
+            )}
 
             {!selectedTarget ? (
               <div className="connectCallout">
@@ -1741,7 +1903,11 @@ export default function Home() {
                         e.currentTarget.form?.requestSubmit();
                       }
                     }}
-                    placeholder={`Mensagem como ${auth[selected]?.userName || "você"} em ${selectedTarget.channelName}...`}
+                    placeholder={
+                      replyingTo?.platform === selected
+                        ? `Responder a ${replyingTo.authorName} como ${auth[selected]?.userName || "você"}...`
+                        : `Mensagem como ${auth[selected]?.userName || "você"} em ${selectedTarget.channelName}...`
+                    }
                     rows={1}
                     maxLength={maxLength}
                   />
