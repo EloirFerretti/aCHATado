@@ -2558,7 +2558,7 @@ export default function Home() {
   }
 
   return (
-    <main className={`shell ${popupMode ? "popupMode" : ""}`}>
+    <main className={`shell chatShell ${popupMode ? "popupMode" : ""}`}>
       {!popupMode && <header className="topbar">
         <div className="brand">
           <div className="brandMark"><span>T</span><span>K</span><span>Y</span></div>
