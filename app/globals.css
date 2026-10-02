@@ -1355,7 +1355,6 @@ a { color: inherit; text-decoration: none; }
   place-items:center;
   padding:20px;
   background:rgba(4,6,10,.72);
-  backdrop-filter:blur(5px);
 }
 .userProfileDialog {
   position:relative;
@@ -1406,6 +1405,19 @@ a { color: inherit; text-decoration: none; }
   padding:22px 52px 20px 22px;
   border-bottom:1px solid #252b36;
   background:linear-gradient(180deg, rgba(255,255,255,.025), transparent);
+  cursor:grab;
+  user-select:none;
+  touch-action:none;
+}
+.userProfileDialog.dragging .userProfileHeader {
+  cursor:grabbing;
+}
+.userProfileHeader a,
+.userProfileHeader button {
+  cursor:pointer;
+}
+.userProfileDialog {
+  will-change:transform;
 }
 .userProfileAvatar {
   flex:0 0 74px;
