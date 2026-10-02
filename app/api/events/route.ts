@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { subscribeChatMessages } from "@/lib/chat-events";
+import { subscribeChatDeletions, subscribeChatMessages } from "@/lib/chat-events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +19,9 @@ export async function GET(req: NextRequest) {
       const unsubscribe = subscribeChatMessages((message) => {
         try { controller.enqueue(frame("chat", message)); } catch { /* cliente fechou */ }
       });
+      const unsubscribeDelete = subscribeChatDeletions((message) => {
+        try { controller.enqueue(frame("chat-delete", message)); } catch { /* cliente fechou */ }
+      });
 
       keepalive = setInterval(() => {
         try { controller.enqueue(encoder.encode(": keepalive\n\n")); } catch { /* cliente fechou */ }
@@ -26,6 +29,7 @@ export async function GET(req: NextRequest) {
 
       cleanup = () => {
         unsubscribe();
+        unsubscribeDelete();
         if (keepalive) clearInterval(keepalive);
         keepalive = null;
         try { controller.close(); } catch { /* noop */ }
