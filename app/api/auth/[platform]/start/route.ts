@@ -42,7 +42,7 @@ export async function GET(
       authorizeUrl.searchParams.set("response_type", "code");
       authorizeUrl.searchParams.set(
         "scope",
-        "user:write:chat user:read:chat user:read:emotes moderator:manage:banned_users moderator:manage:chat_messages",
+        "user:write:chat user:read:chat user:read:emotes user:read:moderated_channels moderator:manage:banned_users moderator:manage:chat_messages",
       );
       authorizeUrl.searchParams.set("state", state);
       authorizeUrl.searchParams.set("force_verify", "false");
