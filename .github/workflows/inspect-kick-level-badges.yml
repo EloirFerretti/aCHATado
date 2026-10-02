@@ -20,7 +20,7 @@ jobs:
 
       - name: Capture Kick level SVGs and source bundles
         run: |
-          cat > /tmp/capture-kick-levels.mjs <<'EOF'
+          cat > capture-kick-levels.mjs <<'EOF'
           import { chromium } from "playwright";
           import fs from "node:fs/promises";
           import path from "node:path";
@@ -153,7 +153,7 @@ jobs:
           console.log("matching bundles", matchingBundles);
           await browser.close();
           EOF
-          node /tmp/capture-kick-levels.mjs
+          node capture-kick-levels.mjs
 
       - name: Print findings
         run: |
