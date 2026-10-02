@@ -1,0 +1,150 @@
+name: Inspect official Kick badge assets
+
+on:
+  push:
+    branches:
+      - kick-official-badge-scrape
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Inspect Kick frontend
+        run: |
+          cat > /tmp/inspect-kick.mjs <<'EOF'
+          import { chromium } from "playwright";
+          import fs from "node:fs/promises";
+
+          const terms = [
+            "sub_gifter",
+            "subgifter",
+            "subGifter",
+            "SubGifter",
+            "gift-badge",
+            "GiftBadge"
+          ];
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+          });
+          const page = await context.newPage();
+
+          const urls = new Set();
+          const matches = [];
+          const svgResponses = [];
+
+          page.on("response", async (response) => {
+            const url = response.url();
+            if (!/kick\.com/i.test(url)) return;
+            urls.add(url);
+
+            const ct = (response.headers()["content-type"] || "").toLowerCase();
+            if (ct.includes("image/svg+xml")) {
+              try {
+                const body = await response.text();
+                svgResponses.push({ url, body });
+              } catch {}
+            }
+
+            if (
+              ct.includes("javascript") ||
+              ct.includes("text/css") ||
+              /\.(?:js|css)(?:\?|$)/i.test(url)
+            ) {
+              try {
+                const body = await response.text();
+                const lower = body.toLowerCase();
+                if (terms.some((term) => lower.includes(term.toLowerCase()))) {
+                  for (const term of terms) {
+                    let pos = 0;
+                    const needle = term.toLowerCase();
+                    while ((pos = lower.indexOf(needle, pos)) >= 0) {
+                      matches.push({
+                        url,
+                        term,
+                        excerpt: body.slice(Math.max(0, pos - 4000), pos + 8000)
+                      });
+                      pos += needle.length;
+                      if (matches.length > 500) break;
+                    }
+                  }
+                }
+              } catch {}
+            }
+          });
+
+          for (const url of [
+            "https://kick.com/",
+            "https://kick.com/xqc"
+          ]) {
+            try {
+              await page.goto(url, { waitUntil: "networkidle", timeout: 90000 });
+              await page.waitForTimeout(12000);
+              const html = await page.content();
+              await fs.writeFile(
+                "/tmp/" + (url.endsWith("xqc") ? "xqc.html" : "home.html"),
+                html
+              );
+            } catch (error) {
+              console.error("navigation error", url, String(error));
+            }
+          }
+
+          await browser.close();
+
+          await fs.mkdir("kick-inspection", { recursive: true });
+          await fs.writeFile(
+            "kick-inspection/network-urls.txt",
+            [...urls].sort().join("\n")
+          );
+          await fs.writeFile(
+            "kick-inspection/matches.json",
+            JSON.stringify(matches, null, 2)
+          );
+          await fs.writeFile(
+            "kick-inspection/svg-responses.json",
+            JSON.stringify(svgResponses, null, 2)
+          );
+
+          for (const p of ["/tmp/home.html", "/tmp/xqc.html"]) {
+            try {
+              const data = await fs.readFile(p);
+              await fs.writeFile("kick-inspection/" + p.split("/").pop(), data);
+            } catch {}
+          }
+
+          console.log("network URLs", urls.size);
+          console.log("matches", matches.length);
+          console.log("SVG responses", svgResponses.length);
+          EOF
+          node /tmp/inspect-kick.mjs
+
+      - name: Print badge-related findings
+        run: |
+          echo "=== URLs ==="
+          grep -iE 'badge|gifter|gift' kick-inspection/network-urls.txt || true
+          echo "=== Matches ==="
+          python - <<'PY'
+          import json
+          data=json.load(open("kick-inspection/matches.json"))
+          for item in data[:50]:
+              print("\nURL:", item["url"])
+              print("TERM:", item["term"])
+              print(item["excerpt"][:3000])
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kick-official-badge-inspection
+          path: kick-inspection
+          if-no-files-found: error
