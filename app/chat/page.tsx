@@ -513,6 +513,8 @@ export default function Home() {
   const [popupMode, setPopupMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState<UserProfileTarget | null>(null);
+  const [profilePosition, setProfilePosition] = useState({ x: 0, y: 0 });
+  const [profileDragging, setProfileDragging] = useState(false);
   const [emotePreview, setEmotePreview] = useState<{
     code: string;
     url: string;
@@ -538,6 +540,14 @@ export default function Home() {
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
   const composerEditorRef = useRef<HTMLDivElement | null>(null);
+  const profileDialogRef = useRef<HTMLElement | null>(null);
+  const profileDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const autoResolveAfterAuth = useRef<Platform | null>(null);
   const autoScrollPausedRef = useRef(false);
   const autoScrollingRef = useRef(false);
@@ -1742,6 +1752,9 @@ export default function Home() {
 
   function openUserProfile(message: Message) {
     setModerationFeedback(null);
+    setProfilePosition({ x: 0, y: 0 });
+    setProfileDragging(false);
+    profileDragRef.current = null;
     setProfileOpen({
       platform: message.platform,
       authorId: message.author_id ? String(message.author_id) : null,
@@ -1857,6 +1870,60 @@ export default function Home() {
       return json;
     } finally {
       setModerationBusy("");
+    }
+  }
+
+  function beginProfileDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, textarea, select")) return;
+
+    profileDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: profilePosition.x,
+      originY: profilePosition.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setProfileDragging(true);
+    event.preventDefault();
+  }
+
+  function moveProfileDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = profileDragRef.current;
+    const dialog = profileDialogRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !dialog) return;
+
+    const rect = dialog.getBoundingClientRect();
+    const baseLeft = rect.left - profilePosition.x;
+    const baseTop = rect.top - profilePosition.y;
+    const nextX = drag.originX + event.clientX - drag.startX;
+    const nextY = drag.originY + event.clientY - drag.startY;
+    const margin = 8;
+
+    setProfilePosition({
+      x: Math.min(
+        window.innerWidth - rect.width - baseLeft - margin,
+        Math.max(-baseLeft + margin, nextX),
+      ),
+      y: Math.min(
+        window.innerHeight - rect.height - baseTop - margin,
+        Math.max(-baseTop + margin, nextY),
+      ),
+    });
+  }
+
+  function endProfileDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = profileDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    profileDragRef.current = null;
+    setProfileDragging(false);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // O navegador pode já ter liberado o ponteiro.
     }
   }
 
@@ -3689,11 +3756,19 @@ export default function Home() {
           className="userProfileOverlay"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setProfileOpen(null);
+            if (event.target === event.currentTarget) {
+              setProfileOpen(null);
+              setProfileDragging(false);
+              profileDragRef.current = null;
+            }
           }}
         >
           <section
-            className={`userProfileDialog ${profileOpen.platform}`}
+            ref={profileDialogRef}
+            className={`userProfileDialog ${profileOpen.platform} ${profileDragging ? "dragging" : ""}`}
+            style={{
+              transform: `translate3d(${profilePosition.x}px, ${profilePosition.y}px, 0)`,
+            }}
             role="dialog"
             aria-modal="true"
             aria-labelledby="user-profile-title"
@@ -3701,14 +3776,24 @@ export default function Home() {
             <button
               type="button"
               className="userProfileClose"
-              onClick={() => setProfileOpen(null)}
+              onClick={() => {
+                setProfileOpen(null);
+                setProfileDragging(false);
+                profileDragRef.current = null;
+              }}
               aria-label="Fechar perfil"
               title="Fechar"
             >
               ×
             </button>
 
-            <div className="userProfileHeader">
+            <div
+              className="userProfileHeader"
+              onPointerDown={beginProfileDrag}
+              onPointerMove={moveProfileDrag}
+              onPointerUp={endProfileDrag}
+              onPointerCancel={endProfileDrag}
+            >
               <div className={`userProfileAvatar ${profileOpen.platform}`}>
                 <span className="avatarFallback" aria-hidden="true">
                   {avatarFallback(profileOpen.authorName)}
