@@ -126,6 +126,33 @@ export async function GET(
         // opcional de perfil não responder.
         session.userName = "YouTube";
       }
+
+      try {
+        const channelUrl = new URL("https://www.googleapis.com/youtube/v3/channels");
+        channelUrl.searchParams.set("part", "id,snippet");
+        channelUrl.searchParams.set("mine", "true");
+        const channelRes = await fetch(channelUrl, {
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+          cache: "no-store",
+        });
+        const channelJson = await channelRes.json().catch(() => ({}));
+        const ownChannel = channelJson?.items?.[0];
+        if (channelRes.ok && ownChannel?.id) {
+          session.userId = String(ownChannel.id);
+          session.userName =
+            typeof ownChannel?.snippet?.title === "string" &&
+            ownChannel.snippet.title.trim()
+              ? ownChannel.snippet.title
+              : session.userName;
+          session.avatar =
+            ownChannel?.snippet?.thumbnails?.default?.url ||
+            ownChannel?.snippet?.thumbnails?.medium?.url ||
+            session.avatar;
+        }
+      } catch {
+        // O chat continua utilizável; sem o channel id apenas ocultamos
+        // controles de moderação até a função ser confirmada pelo próprio chat.
+      }
     }
 
     const redirect = new URL("/chat", origin);
