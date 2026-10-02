@@ -3755,13 +3755,6 @@ export default function Home() {
         <div
           className="userProfileOverlay"
           role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setProfileOpen(null);
-              setProfileDragging(false);
-              profileDragRef.current = null;
-            }
-          }}
         >
           <section
             ref={profileDialogRef}
