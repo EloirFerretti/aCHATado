@@ -2037,6 +2037,7 @@ export default function Home() {
     native?: boolean;
   }) {
     setPickerOpen(false);
+    setProfileOpen(null);
     insertPickerEmote({
       id: emote.id,
       code: emote.code,
