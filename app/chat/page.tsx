@@ -1633,6 +1633,26 @@ export default function Home() {
     });
   }, [pickerEmotes, pickerProvider, pickerSearch]);
 
+  const composerEmotePreview = useMemo(() => {
+    const byCode = new Map<string, PickerEmote>();
+    for (const emote of pickerEmotes) {
+      if (!emote.code || !emote.url) continue;
+      if (!byCode.has(emote.code)) byCode.set(emote.code, emote);
+    }
+
+    return text
+      .split(/(\s+)/)
+      .map((part, index) => {
+        const emote = byCode.get(part);
+        return emote
+          ? { type: "emote" as const, emote, index }
+          : { type: "text" as const, text: part, index };
+      })
+      .filter((part) => part.type === "emote");
+  }, [pickerEmotes, text]);
+
+  const composerHasEmotes = composerEmotePreview.length > 0;
+
   const youtubeEmotePattern = useMemo(() => {
     const codes = Object.keys(youtubeEmotes)
       .filter(Boolean)
@@ -2450,7 +2470,7 @@ export default function Home() {
               </a>
             ) : (
               <div className="inputRow">
-                <div className="textWrap">
+                <div className={`textWrap ${composerHasEmotes ? "hasComposerEmotes" : ""}`}>
                   <button
                     type="button"
                     className={`emotePickerButton ${pickerOpen ? "active" : ""}`}
@@ -2583,6 +2603,26 @@ export default function Home() {
                     rows={1}
                     maxLength={maxLength}
                   />
+                  {composerHasEmotes && (
+                    <div
+                      className="composerEmotePreview"
+                      aria-label="Emotes na mensagem"
+                    >
+                      {composerEmotePreview.map(({ emote, index }) => (
+                        <span
+                          className="composerEmotePreviewItem"
+                          key={`${emote.provider}-${emote.id || emote.code}-${index}`}
+                          title={emote.name || emote.code}
+                        >
+                          <img
+                            src={emote.url}
+                            alt={emote.code}
+                            loading="eager"
+                          />
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <span className="counter">{[...text].length}/{maxLength}</span>
                 </div>
                 <button
