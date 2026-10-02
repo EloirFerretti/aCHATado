@@ -28,6 +28,16 @@ jobs:
             viewport: { width: 1440, height: 1000 },
           });
           const page = await context.newPage();
+          let sentPayload = null;
+
+          await page.route("**/api/send", async (route) => {
+            sentPayload = route.request().postDataJSON();
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({ ok: true, platform: "kick", result: {} }),
+            });
+          });
 
           await page.route("**/api/auth/status", async (route) => {
             await route.fulfill({
@@ -167,6 +177,46 @@ jobs:
           }
           if (result.kickImageCount < 1) {
             throw new Error("No native Kick emote was rendered in the picker");
+          }
+
+          const firstNative = page
+            .locator(".emotePickerItem")
+            .filter({
+              has: page.locator('img[src*="files.kick.com/emotes/"]'),
+            })
+            .first();
+
+          const picked = await firstNative.evaluate((button) => {
+            const img = button.querySelector("img");
+            return {
+              code: img?.getAttribute("alt") || "",
+              src: img?.getAttribute("src") || "",
+            };
+          });
+          await firstNative.click();
+
+          const visibleDraft = await page.locator("textarea").inputValue();
+          await page.locator(".sendButton.kick").click();
+          await page.waitForTimeout(500);
+
+          console.log(
+            "KICK_SEND_RESULT=" +
+              JSON.stringify({ picked, visibleDraft, sentPayload }, null, 2),
+          );
+
+          const idMatch = picked.src.match(/\/emotes\/(\d+)\/fullsize/);
+          const expectedToken =
+            idMatch && picked.code
+              ? `[emote:${idMatch[1]}:${picked.code}]`
+              : "";
+
+          if (!visibleDraft.includes(picked.code)) {
+            throw new Error("Selected Kick emote name was not visible in the composer");
+          }
+          if (!expectedToken || !sentPayload?.message?.includes(expectedToken)) {
+            throw new Error(
+              "Selected Kick emote was not converted to the native wire token",
+            );
           }
 
           await browser.close();
