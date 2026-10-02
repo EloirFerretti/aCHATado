@@ -1046,9 +1046,18 @@ a { color: inherit; text-decoration: none; }
   align-items:center;
   justify-content:center;
   overflow:hidden;
+  margin:0;
+  padding:0;
+  border:0;
   border-radius:50%;
+  background:transparent;
   color:inherit;
   text-decoration:none;
+  cursor:pointer;
+}
+.avatarProfileLink:focus-visible {
+  outline:2px solid #7c8799;
+  outline-offset:2px;
 }
 .avatarProfileLink > img,
 .avatarProfileLink > span {
@@ -1461,7 +1470,7 @@ a { color: inherit; text-decoration: none; }
   color:#616b7b;
   font-size:9px;
 }
-.userProfileMessage span {
+.userProfileMessage > span {
   min-width:0;
   display:-webkit-box;
   overflow:hidden;
@@ -1471,6 +1480,14 @@ a { color: inherit; text-decoration: none; }
   word-break:break-word;
   -webkit-line-clamp:2;
   -webkit-box-orient:vertical;
+}
+.userProfileMessageText .chatEmote {
+  height:24px;
+  max-width:72px;
+  margin:-4px 2px -3px;
+}
+.userProfileMessageText .chatEmote.zeroWidth {
+  margin-left:-16px;
 }
 .userProfileEmpty {
   padding:26px 12px 30px;
