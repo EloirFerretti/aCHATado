@@ -129,6 +129,42 @@ jobs:
           EOF
           node inspect-kick.mjs
 
+      - name: Extract official Kick GiftBadge SVGs
+        run: |
+          mkdir -p kick-inspection/official-sub-gifter
+          curl -L --fail --retry 3 \
+            'https://assets.kick.com/main/_next/static/chunks/12qf6o6wasohx.js' \
+            -o kick-inspection/kick-gift-bundle.js
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          js = Path("kick-inspection/kick-gift-bundle.js").read_text(encoding="utf-8")
+          found = {}
+          for m in re.finditer(r'name:"Gift(\\d+)",viewBox:"([^"]+)",body:\'([^\']*)\'', js):
+              qty = int(m.group(1))
+              viewbox = m.group(2)
+              body = m.group(3)
+              found[qty] = {
+                  "quantity": qty,
+                  "viewBox": viewbox,
+                  "body": body,
+              }
+
+          out = Path("kick-inspection/official-sub-gifter")
+          out.mkdir(parents=True, exist_ok=True)
+          for qty, item in sorted(found.items()):
+              svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{item["viewBox"]}">{item["body"]}</svg>\\n'
+              (out / f"sub-gifter-{qty}.svg").write_text(svg, encoding="utf-8")
+
+          Path("kick-inspection/gift-badge-manifest.json").write_text(
+              json.dumps([found[k] for k in sorted(found)], indent=2),
+              encoding="utf-8",
+          )
+          print("official GiftBadge quantities:", sorted(found))
+          print("count:", len(found))
+          PY
+
       - name: Print badge-related findings
         run: |
           echo "=== URLs ==="
