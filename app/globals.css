@@ -566,9 +566,92 @@ a { color: inherit; text-decoration: none; }
 
 /* Janela popup do chat */
 .chatHeaderActions {
+  min-width:0;
   display:flex;
   align-items:center;
+  justify-content:flex-end;
   gap:10px;
+}
+.chatFilterBar {
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  white-space:nowrap;
+}
+.chatFilterLabel {
+  margin:0 3px 0 0 !important;
+  color:#697181 !important;
+  font-size:8px !important;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.chatFilterButton {
+  min-height:30px;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:0 7px;
+  border:1px solid #29303d;
+  border-radius:8px;
+  background:#171b23;
+  color:#8d95a4;
+  font-size:9px;
+  font-weight:750;
+  cursor:pointer;
+}
+.chatFilterButton:hover {
+  color:#fff;
+  border-color:#414b5d;
+  background:#202631;
+}
+.chatFilterButton.active {
+  color:#fff;
+  border-color:#4a5568;
+  background:#242b37;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.035);
+}
+.chatFilterButton > span {
+  display:inline !important;
+  margin:0 !important;
+  color:inherit !important;
+  font-size:9px !important;
+}
+.chatFilterButton b {
+  min-width:15px;
+  color:#737d8e;
+  font-size:8px;
+  font-weight:800;
+  text-align:right;
+}
+.chatFilterButton.active b {
+  color:#aab2c0;
+}
+.chatFilterIcon {
+  flex:0 0 auto;
+  width:18px;
+  height:18px;
+  display:grid !important;
+  place-items:center;
+  border-radius:6px;
+  background:#282e3a;
+  color:#fff !important;
+  font-size:8px !important;
+  font-weight:900;
+}
+.chatFilterIcon.twitch {
+  background:var(--twitch);
+}
+.chatFilterIcon.kick {
+  background:var(--kick);
+  color:#051001 !important;
+}
+.chatFilterIcon.youtube {
+  background:var(--youtube);
+}
+.chatFilterIcon.all {
+  background:#303746;
 }
 .chatUtilityButton {
   display:inline-flex;
@@ -729,6 +812,26 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width:800px) {
+  .chatFilterBar {
+    flex:1;
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
+  .chatFilterBar::-webkit-scrollbar {
+    display:none;
+  }
+  .chatFilterLabel {
+    display:none !important;
+  }
+  .chatFilterButton {
+    flex:0 0 auto;
+    min-width:30px;
+    padding:0 6px;
+  }
+  .chatFilterButton > span:not(.chatFilterIcon),
+  .chatFilterButton b {
+    display:none !important;
+  }
   .chatUtilityButton {
     min-width:34px;
     padding:0 8px;
