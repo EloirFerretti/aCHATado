@@ -258,6 +258,82 @@ function avatarFallback(name: string) {
   return name.trim().slice(0, 1).toUpperCase() || "?";
 }
 
+function normalizeAvatarUrl(value: unknown): string | null {
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return null;
+    if (raw.startsWith("//")) return `https:${raw}`;
+    if (raw.startsWith("/")) return `https://kick.com${raw}`;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    return null;
+  }
+
+  if (value && typeof value === "object") {
+    const candidate = value as Record<string, unknown>;
+    for (const key of [
+      "url",
+      "src",
+      "profile_pic",
+      "profile_picture",
+      "profilePic",
+      "profilePicture",
+      "avatar",
+      "avatar_url",
+    ]) {
+      const normalized = normalizeAvatarUrl(candidate[key]);
+      if (normalized) return normalized;
+    }
+  }
+
+  return null;
+}
+
+function kickAvatarFromRaw(raw: any) {
+  const sender = raw?.sender || raw?.user || raw?.author || {};
+  const candidates = [
+    sender?.profile_picture,
+    sender?.profile_pic,
+    sender?.profile_pic_v2,
+    sender?.profilePicV2,
+    sender?.profilePicture,
+    sender?.profileimage,
+    sender?.profile_image,
+    sender?.avatar,
+    sender?.avatar_url,
+    raw?.profile_picture,
+    raw?.profile_pic,
+    raw?.user?.profile_pic,
+    raw?.user?.profile_picture,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeAvatarUrl(candidate);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+function kickMessageSlug(message: Message) {
+  const rawSlug =
+    message.raw?.sender?.slug ||
+    message.raw?.sender?.channel_slug ||
+    message.raw?.user?.slug ||
+    "";
+  const value = String(rawSlug || message.author_name || "")
+    .trim()
+    .replace(/^@/, "")
+    .toLowerCase();
+  return value || null;
+}
+
+function kickAvatarCacheKey(message: Message) {
+  const id = String(message.author_id || "").trim();
+  if (id) return `id:${id}`;
+  const slug = kickMessageSlug(message);
+  return slug ? `slug:${slug}` : null;
+}
+
 function cleanReplyPreview(value: unknown) {
   return String(value || "")
     .replace(/\[emote:[^:\]]+:([^\]]+)\]/g, "$1")
@@ -388,6 +464,9 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
+  const [kickAvatarCache, setKickAvatarCache] = useState<Record<string, string | null>>({});
+  const [brokenAvatarUrls, setBrokenAvatarUrls] = useState<Record<string, true>>({});
+  const kickAvatarPendingRef = useRef(new Set<string>());
   const lastId = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
@@ -998,11 +1077,7 @@ export default function Home() {
         author_name: String(
           raw.sender?.username || raw.sender?.slug || "Kick user",
         ),
-        author_avatar:
-          raw.sender?.profile_pic ||
-          raw.sender?.profile_picture ||
-          raw.sender?.profile_image ||
-          null,
+        author_avatar: kickAvatarFromRaw(raw),
         author_color:
           raw.sender?.identity?.color ||
           raw.sender?.identity?.username_color ||
@@ -1340,6 +1415,121 @@ export default function Home() {
     () => messages.filter((m) => filter === "all" || m.platform === filter),
     [messages, filter],
   );
+
+  function messageAvatarUrl(message: Message) {
+    const direct =
+      normalizeAvatarUrl(message.author_avatar) ||
+      (message.platform === "kick" ? kickAvatarFromRaw(message.raw) : null);
+
+    if (direct && !brokenAvatarUrls[direct]) return direct;
+    if (message.platform !== "kick") return null;
+
+    const key = kickAvatarCacheKey(message);
+    if (!key) return null;
+    const cached = kickAvatarCache[key];
+    return cached && !brokenAvatarUrls[cached] ? cached : null;
+  }
+
+  function markAvatarBroken(message: Message | null, url: string) {
+    if (!url) return;
+    setBrokenAvatarUrls((previous) =>
+      previous[url] ? previous : { ...previous, [url]: true },
+    );
+
+    if (message?.platform === "kick") {
+      const key = kickAvatarCacheKey(message);
+      if (key && kickAvatarCache[key] === url) {
+        setKickAvatarCache((previous) => ({ ...previous, [key]: null }));
+      }
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const targets = visible
+      .filter((message) => message.platform === "kick")
+      .map((message) => {
+        const key = kickAvatarCacheKey(message);
+        const slug = kickMessageSlug(message);
+        const direct =
+          normalizeAvatarUrl(message.author_avatar) ||
+          kickAvatarFromRaw(message.raw);
+        const usableDirect = direct && !brokenAvatarUrls[direct];
+
+        if (
+          !key ||
+          !slug ||
+          usableDirect ||
+          kickAvatarPendingRef.current.has(key) ||
+          Object.prototype.hasOwnProperty.call(kickAvatarCache, key)
+        ) {
+          return null;
+        }
+
+        return { key, slug };
+      })
+      .filter(
+        (entry): entry is { key: string; slug: string } => Boolean(entry),
+      )
+      .filter(
+        (entry, index, array) =>
+          array.findIndex((candidate) => candidate.key === entry.key) === index,
+      )
+      .slice(0, 8);
+
+    if (!targets.length) return;
+
+    for (const target of targets) {
+      kickAvatarPendingRef.current.add(target.key);
+    }
+
+    Promise.all(
+      targets.map(async ({ key, slug }) => {
+        try {
+          const response = await fetch(
+            `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`,
+            {
+              cache: "no-store",
+              credentials: "omit",
+              headers: { Accept: "application/json" },
+            },
+          );
+          if (!response.ok) return { key, avatar: null };
+
+          const channel = await response.json();
+          const avatar =
+            normalizeAvatarUrl(channel?.user?.profile_pic) ||
+            normalizeAvatarUrl(channel?.user?.profile_picture) ||
+            normalizeAvatarUrl(channel?.profile_pic) ||
+            normalizeAvatarUrl(channel?.profile_picture) ||
+            null;
+
+          return { key, avatar };
+        } catch {
+          return { key, avatar: null };
+        }
+      }),
+    ).then((results) => {
+      for (const target of targets) {
+        kickAvatarPendingRef.current.delete(target.key);
+      }
+      if (cancelled) return;
+
+      setKickAvatarCache((previous) => {
+        const next = { ...previous };
+        for (const result of results) {
+          next[result.key] = result.avatar;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, kickAvatarCache, brokenAvatarUrls]);
+
   const counts = useMemo(() => ({
     twitch: messages.filter((m) => m.platform === "twitch").length,
     kick: messages.filter((m) => m.platform === "kick").length,
@@ -1361,7 +1551,7 @@ export default function Home() {
       platform: message.platform,
       authorId: message.author_id ? String(message.author_id) : null,
       authorName: message.author_name,
-      authorAvatar: message.author_avatar || null,
+      authorAvatar: messageAvatarUrl(message),
       authorColor: message.author_color || null,
       profileUrl: profileUrl(message),
     });
@@ -2485,14 +2675,38 @@ export default function Home() {
                       title={`Abrir perfil de ${m.author_name}`}
                       aria-label={`Abrir perfil de ${m.author_name}`}
                     >
-                      {m.author_avatar
-                        ? <img src={m.author_avatar} alt="" />
-                        : <span>{avatarFallback(m.author_name)}</span>}
+                      <span className="avatarFallback" aria-hidden="true">
+                        {avatarFallback(m.author_name)}
+                      </span>
+                      {messageAvatarUrl(m) && (
+                        <img
+                          src={messageAvatarUrl(m)!}
+                          alt=""
+                          onError={(event) => {
+                            const url = event.currentTarget.src;
+                            event.currentTarget.hidden = true;
+                            markAvatarBroken(m, url);
+                          }}
+                        />
+                      )}
                     </a>
                   ) : (
-                    m.author_avatar
-                      ? <img src={m.author_avatar} alt="" />
-                      : <span>{avatarFallback(m.author_name)}</span>
+                    <>
+                      <span className="avatarFallback" aria-hidden="true">
+                        {avatarFallback(m.author_name)}
+                      </span>
+                      {messageAvatarUrl(m) && (
+                        <img
+                          src={messageAvatarUrl(m)!}
+                          alt=""
+                          onError={(event) => {
+                            const url = event.currentTarget.src;
+                            event.currentTarget.hidden = true;
+                            markAvatarBroken(m, url);
+                          }}
+                        />
+                      )}
+                    </>
                   )}
                   <span className={`miniPlatform ${m.platform}`}>{initials[m.platform]}</span>
                 </div>
@@ -2822,10 +3036,21 @@ export default function Home() {
 
             <div className="userProfileHeader">
               <div className={`userProfileAvatar ${profileOpen.platform}`}>
-                {profileOpen.authorAvatar ? (
-                  <img src={profileOpen.authorAvatar} alt="" />
-                ) : (
-                  <span>{avatarFallback(profileOpen.authorName)}</span>
+                <span className="avatarFallback" aria-hidden="true">
+                  {avatarFallback(profileOpen.authorName)}
+                </span>
+                {profileOpen.authorAvatar && (
+                  <img
+                    src={profileOpen.authorAvatar}
+                    alt=""
+                    onError={(event) => {
+                      event.currentTarget.hidden = true;
+                      setBrokenAvatarUrls((previous) => ({
+                        ...previous,
+                        [event.currentTarget.src]: true,
+                      }));
+                    }}
+                  />
                 )}
               </div>
               <div className="userProfileIdentity">
