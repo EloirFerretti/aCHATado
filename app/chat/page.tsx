@@ -66,6 +66,7 @@ type UserProfileTarget = {
 };
 
 type ModerationAction = "ban" | "timeout" | "unban" | "delete_message";
+type ModerationRole = "owner" | "moderator" | "none" | "unknown";
 type ResolvedChannel = {
   platform: Platform;
   input: string;
@@ -83,6 +84,7 @@ type AuthInfo = Record<
   {
     connected: boolean;
     configured: boolean;
+    userId?: string;
     userName?: string;
     avatar?: string;
     moderationReady?: boolean;
@@ -442,6 +444,49 @@ function sameProfileAuthor(message: Message, profile: UserProfileTarget) {
   );
 }
 
+function messageModerationRole(message: Message): "owner" | "moderator" | null {
+  if (message.platform === "youtube") {
+    const author = message.raw?.authorDetails || message.raw?.author_details || {};
+    if (author?.isChatOwner || author?.is_chat_owner) return "owner";
+    if (author?.isChatModerator || author?.is_chat_moderator) return "moderator";
+    return null;
+  }
+
+  const badgeNames = [
+    ...(message.badges || []).map((badge) =>
+      String(badge.set_id || badge.setId || badge.type || badge.name || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, ""),
+    ),
+    ...(Array.isArray(message.raw?.sender?.identity?.badges)
+      ? message.raw.sender.identity.badges.map((badge: any) =>
+          String(badge?.type || badge?.name || badge?.text || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, ""),
+        )
+      : []),
+    ...(Array.isArray(message.raw?.sender?.identity?.badges_v2)
+      ? message.raw.sender.identity.badges_v2.map((badge: any) =>
+          String(badge?.type || badge?.name || badge?.text || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, ""),
+        )
+      : []),
+  ].filter(Boolean);
+
+  if (
+    badgeNames.some((name) =>
+      ["broadcaster", "owner", "channel_owner", "streamer"].includes(name),
+    )
+  ) {
+    return "owner";
+  }
+  if (badgeNames.some((name) => ["moderator", "mod"].includes(name))) {
+    return "moderator";
+  }
+  return null;
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [filter, setFilter] = useState<"all" | Platform>("all");
@@ -476,6 +521,9 @@ export default function Home() {
     top: number;
   } | null>(null);
   const [moderationBusy, setModerationBusy] = useState("");
+  const [moderationRoles, setModerationRoles] = useState<
+    Partial<Record<Platform, ModerationRole>>
+  >({});
   const [moderationFeedback, setModerationFeedback] = useState<{
     type: "success" | "error";
     text: string;
@@ -505,6 +553,113 @@ export default function Home() {
   async function loadAuth() {
     const res = await fetch("/api/auth/status", { cache: "no-store" });
     if (res.ok) setAuth(await res.json());
+  }
+
+  useEffect(() => {
+    if (!ready) return;
+
+    let cancelled = false;
+    const verify = async (platform: Platform) => {
+      const channelId = channels[platform]?.channelId;
+      if (!channelId || !auth[platform]?.connected) {
+        if (!cancelled) {
+          setModerationRoles((previous) => ({
+            ...previous,
+            [platform]: "none",
+          }));
+        }
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/moderation/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform, channelId }),
+          cache: "no-store",
+        });
+        const json = await response.json().catch(() => ({}));
+        if (!cancelled && response.ok) {
+          setModerationRoles((previous) => ({
+            ...previous,
+            [platform]:
+              json.role === "owner" ||
+              json.role === "moderator" ||
+              json.role === "none"
+                ? json.role
+                : "unknown",
+          }));
+        }
+      } catch {
+        if (!cancelled) {
+          setModerationRoles((previous) => ({
+            ...previous,
+            [platform]: "unknown",
+          }));
+        }
+      }
+    };
+
+    platforms.forEach((platform) => void verify(platform));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    ready,
+    channels.twitch?.channelId,
+    channels.kick?.channelId,
+    channels.youtube?.channelId,
+    auth.twitch.connected,
+    auth.kick.connected,
+    auth.youtube.connected,
+    auth.twitch.userId,
+    auth.kick.userId,
+    auth.youtube.userId,
+  ]);
+
+  const effectiveModerationRoles = useMemo(() => {
+    const result: Partial<Record<Platform, ModerationRole>> = {
+      ...moderationRoles,
+    };
+
+    for (const platform of platforms) {
+      const userId = String(auth[platform]?.userId || "").trim();
+      const channelId = String(channels[platform]?.channelId || "").trim();
+
+      if (userId && channelId && userId === channelId) {
+        result[platform] = "owner";
+        continue;
+      }
+
+      if (!userId) continue;
+
+      const ownMessages = messages.filter(
+        (message) =>
+          message.platform === platform &&
+          String(message.author_id || "").trim() === userId,
+      );
+
+      for (const message of ownMessages) {
+        const role = messageModerationRole(message);
+        if (role === "owner") {
+          result[platform] = "owner";
+          break;
+        }
+        if (role === "moderator") {
+          result[platform] = "moderator";
+        }
+      }
+    }
+
+    return result;
+  }, [moderationRoles, auth, channels, messages]);
+
+  function canModerate(platform: Platform) {
+    return (
+      effectiveModerationRoles[platform] === "owner" ||
+      effectiveModerationRoles[platform] === "moderator"
+    );
   }
 
   function activeParams() {
@@ -1647,6 +1802,11 @@ export default function Home() {
     if (!auth[options.platform]?.connected) {
       throw new Error(`Conecte sua conta da ${labels[options.platform]} antes de moderar.`);
     }
+    if (!canModerate(options.platform)) {
+      throw new Error(
+        `Sua conta não foi confirmada como moderadora deste canal da ${labels[options.platform]}.`,
+      );
+    }
 
     const userId = String(options.userId || "").trim();
     const busyKey = `${options.platform}:${options.action}:${userId || options.messageId || ""}`;
@@ -1847,6 +2007,19 @@ export default function Home() {
     }
 
     if (!action) return false;
+
+    if (!canModerate(selected)) {
+      setError(
+        `Sua conta não foi confirmada como moderadora deste canal da ${labels[selected]}.`,
+      );
+      return true;
+    }
+    if (!auth[selected]?.moderationReady) {
+      setError(
+        `Reconecte sua conta da ${labels[selected]} para conceder as permissões de moderação.`,
+      );
+      return true;
+    }
 
     const user = findLoadedUser(selected, username);
     if (!user?.author_id) {
@@ -3257,7 +3430,7 @@ export default function Home() {
                         ↩ <span>Responder</span>
                       </button>
                     )}
-                    {auth[m.platform]?.connected &&
+                    {canModerate(m.platform) &&
                       auth[m.platform]?.moderationReady && (
                         <button
                           type="button"
@@ -3587,58 +3760,53 @@ export default function Home() {
                     Link do perfil indisponível
                   </span>
                 )}
-                <div className="userProfileModeration">
-                  {!auth[profileOpen.platform]?.connected ? (
-                    <a
-                      className="moderationReconnect"
-                      href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
-                    >
-                      Conectar {labels[profileOpen.platform]} para moderar
-                    </a>
-                  ) : !auth[profileOpen.platform]?.moderationReady ? (
-                    <a
-                      className="moderationReconnect"
-                      href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
-                    >
-                      Reconectar para ativar moderação
-                    </a>
-                  ) : (
-                    <div className="moderationActionRow">
-                      <button
-                        type="button"
-                        className="moderationButton timeout"
-                        onClick={() => moderateProfile("timeout")}
-                        disabled={Boolean(moderationBusy)}
+                {canModerate(profileOpen.platform) && (
+                  <div className="userProfileModeration">
+                    {!auth[profileOpen.platform]?.moderationReady ? (
+                      <a
+                        className="moderationReconnect"
+                        href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
                       >
-                        Timeout
-                      </button>
-                      <button
-                        type="button"
-                        className="moderationButton ban"
-                        onClick={() => moderateProfile("ban")}
-                        disabled={Boolean(moderationBusy)}
+                        Reconectar para ativar moderação
+                      </a>
+                    ) : (
+                      <div className="moderationActionRow">
+                        <button
+                          type="button"
+                          className="moderationButton timeout"
+                          onClick={() => moderateProfile("timeout")}
+                          disabled={Boolean(moderationBusy)}
+                        >
+                          Timeout
+                        </button>
+                        <button
+                          type="button"
+                          className="moderationButton ban"
+                          onClick={() => moderateProfile("ban")}
+                          disabled={Boolean(moderationBusy)}
+                        >
+                          Banir
+                        </button>
+                        <button
+                          type="button"
+                          className="moderationButton unban"
+                          onClick={() => moderateProfile("unban")}
+                          disabled={Boolean(moderationBusy)}
+                        >
+                          Desbanir
+                        </button>
+                      </div>
+                    )}
+                    {moderationFeedback && (
+                      <div
+                        className={`moderationFeedback ${moderationFeedback.type}`}
+                        role="status"
                       >
-                        Banir
-                      </button>
-                      <button
-                        type="button"
-                        className="moderationButton unban"
-                        onClick={() => moderateProfile("unban")}
-                        disabled={Boolean(moderationBusy)}
-                      >
-                        Desbanir
-                      </button>
-                    </div>
-                  )}
-                  {moderationFeedback && (
-                    <div
-                      className={`moderationFeedback ${moderationFeedback.type}`}
-                      role="status"
-                    >
-                      {moderationFeedback.text}
-                    </div>
-                  )}
-                </div>
+                        {moderationFeedback.text}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
