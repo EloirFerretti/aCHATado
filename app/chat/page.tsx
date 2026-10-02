@@ -1302,6 +1302,16 @@ export default function Home() {
     });
   }
 
+  function clearChat() {
+    setMessages([]);
+    setReplyingTo(null);
+    setProfileOpen(null);
+    setUnseenMessageCount(0);
+    previousMessageCountRef.current = 0;
+    autoScrollPausedRef.current = false;
+    setAutoScrollPaused(false);
+  }
+
   function scrollToLatest(behavior: ScrollBehavior = "smooth") {
     const list = messageListRef.current;
     if (!list) return;
@@ -2524,6 +2534,17 @@ export default function Home() {
                 <span />
                 {activeChannelCount ? "sincronizando" : "aguardando canais"}
               </div>
+              <button
+                type="button"
+                className="chatUtilityButton clearChatButton"
+                onClick={clearChat}
+                disabled={!messages.length}
+                title="Limpar mensagens exibidas"
+                aria-label="Limpar chat"
+              >
+                ⌫
+                <span>Limpar</span>
+              </button>
               {popupMode ? (
                 <button
                   type="button"
