@@ -574,6 +574,20 @@ a { color: inherit; text-decoration: none; }
   border-color:#475163;
   background:#232936;
 }
+.chatUtilityButton:disabled {
+  opacity:.38;
+  cursor:not-allowed;
+}
+.chatUtilityButton:disabled:hover {
+  color:#aeb5c2;
+  border-color:#303746;
+  background:#1a1f29;
+}
+.clearChatButton:hover:not(:disabled) {
+  color:#ffb1b6;
+  border-color:#704149;
+  background:#2a1c21;
+}
 .chatUtilityButton > span {
   display:inline !important;
   margin:0 !important;
