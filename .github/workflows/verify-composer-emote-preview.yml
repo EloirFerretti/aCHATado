@@ -1,0 +1,157 @@
+name: Verify composer emote preview
+
+on:
+  push:
+    branches:
+      - verify-composer-emote-preview
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Verify composer emote preview in production
+        run: |
+          cat > verify-composer.mjs <<'EOF'
+          import { chromium } from "playwright";
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            viewport: { width: 1440, height: 1000 },
+          });
+          const page = await context.newPage();
+
+          await page.route("**/api/auth/status", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                twitch: { connected: false, configured: true },
+                kick: { connected: true, configured: true, userName: "Kick test" },
+                youtube: { connected: false, configured: true },
+              }),
+            });
+          });
+
+          await page.goto("https://achatado.onrender.com/chat", {
+            waitUntil: "domcontentloaded",
+            timeout: 90000,
+          });
+
+          const resolved = await page.evaluate(async () => {
+            const response = await fetch("/api/channels/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channels: { twitch: "", kick: "xqc", youtube: "" },
+              }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json?.channels?.kick?.channelId) {
+              throw new Error("Kick channel resolution failed: " + JSON.stringify(json));
+            }
+            localStorage.setItem(
+              "achatado_channel_inputs",
+              JSON.stringify({ twitch: "", kick: "xqc", youtube: "" }),
+            );
+            localStorage.setItem(
+              "achatado_channels",
+              JSON.stringify(json.channels),
+            );
+            return json.channels.kick;
+          });
+          console.log("RESOLVED=" + JSON.stringify(resolved));
+
+          let result = null;
+
+          for (let attempt = 1; attempt <= 30; attempt++) {
+            await page.reload({ waitUntil: "domcontentloaded", timeout: 90000 });
+
+            const kickButton = page.locator(".platformSwitch button.kick");
+            if (await kickButton.count()) {
+              await kickButton.click();
+
+              const pickerButton = page.locator(".emotePickerButton");
+              if (await pickerButton.count()) {
+                await pickerButton.click();
+                await page.waitForTimeout(2500);
+
+                const firstNative = page
+                  .locator(".emotePickerItem")
+                  .filter({
+                    has: page.locator('img[src*="files.kick.com/emotes/"]'),
+                  })
+                  .first();
+
+                if (await firstNative.count()) {
+                  const picked = await firstNative.evaluate((button) => {
+                    const img = button.querySelector("img");
+                    return {
+                      code: img?.getAttribute("alt") || "",
+                      src: img?.getAttribute("src") || "",
+                    };
+                  });
+
+                  await firstNative.click();
+                  await page.waitForTimeout(300);
+
+                  const textarea = page.locator("textarea");
+                  const selectedValue = await textarea.inputValue();
+                  const selectedPreview = await page.evaluate(() =>
+                    [...document.querySelectorAll(".composerEmotePreview img")].map((img) => ({
+                      alt: img.getAttribute("alt"),
+                      src: img.getAttribute("src"),
+                    })),
+                  );
+
+                  await textarea.fill("AYAYA ");
+                  await page.waitForTimeout(300);
+
+                  const typedPreview = await page.evaluate(() =>
+                    [...document.querySelectorAll(".composerEmotePreview img")].map((img) => ({
+                      alt: img.getAttribute("alt"),
+                      src: img.getAttribute("src"),
+                    })),
+                  );
+
+                  result = { picked, selectedValue, selectedPreview, typedPreview };
+                  console.log("ATTEMPT=" + attempt + " " + JSON.stringify(result));
+
+                  if (
+                    selectedPreview.length > 0 &&
+                    typedPreview.some((item) => item.alt === "AYAYA")
+                  ) {
+                    break;
+                  }
+                }
+              }
+            }
+
+            await page.waitForTimeout(5000);
+          }
+
+          console.log("COMPOSER_RESULT=" + JSON.stringify(result, null, 2));
+
+          if (!result?.selectedPreview?.length) {
+            throw new Error("Picker-selected emote did not render inside composer");
+          }
+          if (!result?.typedPreview?.some((item) => item.alt === "AYAYA")) {
+            throw new Error("Typed emote code did not render inside composer");
+          }
+
+          await browser.close();
+          EOF
+
+          node verify-composer.mjs
