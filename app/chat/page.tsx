@@ -143,113 +143,108 @@ const pickerCategoryLabels: Record<PickerCategory, string> = {
 };
 
 function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
+  if (!Array.isArray(payload)) return [];
+
   const found = new Map<string, PickerEmote>();
 
-  const visit = (value: any, path: string[] = []) => {
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item, path);
-      return;
-    }
-    if (!value || typeof value !== "object") return;
+  for (const rawSet of payload) {
+    if (!rawSet || typeof rawSet !== "object") continue;
 
-    const rawId = value.id ?? value.emote_id ?? value.emoteId;
-    const rawName = value.name ?? value.code ?? value.slug;
-    const id = rawId == null ? "" : String(rawId).trim();
-    const name = typeof rawName === "string" ? rawName.trim() : "";
-
-    const nestedEmoteCollection =
-      Array.isArray(value.emotes) ||
-      Array.isArray(value.items) ||
-      Array.isArray(value.children);
-
-    const context = [
-      ...path,
-      value.type,
-      value.category,
-      value.scope,
-      value.emote_type,
-      value.emoteType,
-    ]
-      .filter((part) => typeof part === "string" && part)
-      .join(" ")
+    const set = rawSet as {
+      slug?: unknown;
+      name?: unknown;
+      type?: unknown;
+      emotes?: unknown;
+    };
+    const setLabel = String(set.slug ?? set.name ?? set.type ?? "")
+      .trim()
       .toLowerCase();
+    const isGlobal =
+      setLabel === "global" ||
+      setLabel === "globals" ||
+      setLabel.includes("global");
+    const isEmoji =
+      setLabel === "emoji" ||
+      setLabel === "emojis" ||
+      setLabel.includes("emoji");
 
-    const looksLikeEmote =
-      Boolean(id && name) &&
-      !nestedEmoteCollection &&
-      (
-        context.includes("emote") ||
-        context.includes("emoji") ||
-        context.includes("global") ||
-        context.includes("channel") ||
-        context.includes("subscriber") ||
-        value.image_url ||
-        value.imageUrl ||
-        value.image ||
-        value.images
-      );
+    const list = Array.isArray(set.emotes) ? set.emotes : [];
+    for (const rawEmote of list) {
+      if (!rawEmote || typeof rawEmote !== "object") continue;
+      const emote = rawEmote as {
+        id?: unknown;
+        name?: unknown;
+        subscribers_only?: unknown;
+        subscriber_only?: unknown;
+        is_subscriber_only?: unknown;
+      };
 
-    if (looksLikeEmote) {
+      const id =
+        typeof emote.id === "number" || typeof emote.id === "string"
+          ? String(emote.id).trim()
+          : "";
+      const name = typeof emote.name === "string" ? emote.name.trim() : "";
+      if (!id || !name) continue;
+
       const requiresSubscription = Boolean(
-        value.subscriber_only ||
-          value.is_subscriber_only ||
-          value.subscription_only ||
-          value.requires_subscription ||
-          value.requiresSubscription ||
-          context.includes("subscriber") ||
-          context.includes("subscription"),
-      );
-      const global =
-        Boolean(value.global || value.is_global || value.isGlobal) ||
-        context.includes("global") ||
-        context.includes("emoji");
-
-      const imageCandidates = [
-        value.image_url,
-        value.imageUrl,
-        value.url,
-        value.src,
-        value.image?.url,
-        value.image?.src,
-        value.images?.url,
-        value.images?.src,
-        value.images?.fullsize,
-      ];
-      const providedImage = imageCandidates.find(
-        (candidate) => typeof candidate === "string" && candidate.trim(),
+        emote.subscribers_only ||
+          emote.subscriber_only ||
+          emote.is_subscriber_only,
       );
 
       found.set(`kick:${id}`, {
         id,
         code: name,
         name,
-        url:
-          typeof providedImage === "string"
-            ? providedImage
-            : `https://files.kick.com/emotes/${encodeURIComponent(id)}/fullsize`,
+        url: `https://files.kick.com/emotes/${encodeURIComponent(id)}/fullsize`,
         provider: "kick",
-        category: global ? "official" : "channel",
-        scope: global ? "global" : "channel",
+        category: isGlobal || isEmoji ? "official" : "channel",
+        scope: isGlobal || isEmoji ? "global" : "channel",
         native: true,
-        emoteType: requiresSubscription ? "subscriber" : global ? "global" : "channel",
+        emoteType: requiresSubscription
+          ? "subscriber"
+          : isEmoji
+            ? "emoji"
+            : isGlobal
+              ? "global"
+              : "channel",
         requiresSubscription,
       });
     }
-
-    for (const [key, child] of Object.entries(value)) {
-      if (child && (typeof child === "object" || Array.isArray(child))) {
-        visit(child, [...path, key]);
-      }
-    }
-  };
-
-  visit(payload);
+  }
 
   return [...found.values()].sort(
     (a, b) =>
       (a.category === b.category ? 0 : a.category === "official" ? -1 : 1) ||
       (a.name || a.code).localeCompare(b.name || b.code),
   );
+}
+
+function kickMessageWithNativeEmotes(
+  value: string,
+  emotes: PickerEmote[],
+) {
+  const byCode = new Map(
+    emotes
+      .filter(
+        (emote) =>
+          emote.provider === "kick" &&
+          Boolean(emote.native) &&
+          Boolean(emote.id) &&
+          Boolean(emote.code),
+      )
+      .map((emote) => [emote.code, String(emote.id)]),
+  );
+
+  if (!byCode.size) return value;
+
+  return value
+    .split(/(\s+)/)
+    .map((part) => {
+      const id = byCode.get(part);
+      return id ? `[emote:${id}:${part}]` : part;
+    })
+    .join("");
 }
 
 function timeLabel(iso: string) {
@@ -1429,7 +1424,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platform: selected,
-          message: text,
+          message:
+            selected === "kick"
+              ? kickMessageWithNativeEmotes(text, pickerEmotes)
+              : text,
           channelId: target.channelId,
           liveChatId: target.liveChatId || undefined,
           replyToMessageId:
