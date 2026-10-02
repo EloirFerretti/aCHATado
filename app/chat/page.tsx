@@ -393,6 +393,7 @@ export default function Home() {
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerMirrorRef = useRef<HTMLDivElement | null>(null);
   const autoResolveAfterAuth = useRef(false);
   const autoScrollPausedRef = useRef(false);
   const autoScrollingRef = useRef(false);
@@ -1633,25 +1634,24 @@ export default function Home() {
     });
   }, [pickerEmotes, pickerProvider, pickerSearch]);
 
-  const composerEmotePreview = useMemo(() => {
+  const composerRichParts = useMemo(() => {
     const byCode = new Map<string, PickerEmote>();
     for (const emote of pickerEmotes) {
       if (!emote.code || !emote.url) continue;
       if (!byCode.has(emote.code)) byCode.set(emote.code, emote);
     }
 
-    return text
-      .split(/(\s+)/)
-      .map((part, index) => {
-        const emote = byCode.get(part);
-        return emote
-          ? { type: "emote" as const, emote, index }
-          : { type: "text" as const, text: part, index };
-      })
-      .filter((part) => part.type === "emote");
+    return text.split(/(\s+)/).map((part, index) => {
+      const emote = byCode.get(part);
+      return emote
+        ? { type: "emote" as const, emote, index }
+        : { type: "text" as const, text: part, index };
+    });
   }, [pickerEmotes, text]);
 
-  const composerHasEmotes = composerEmotePreview.length > 0;
+  const composerHasEmotes = composerRichParts.some(
+    (part) => part.type === "emote",
+  );
 
   const youtubeEmotePattern = useMemo(() => {
     const codes = Object.keys(youtubeEmotes)
@@ -2585,10 +2585,43 @@ export default function Home() {
                     </div>
                   )}
 
+                  {composerHasEmotes && (
+                    <div
+                      ref={composerMirrorRef}
+                      className="composerRichMirror"
+                      aria-hidden="true"
+                    >
+                      {composerRichParts.map((part) =>
+                        part.type === "emote" ? (
+                          <span
+                            className="composerRichEmote"
+                            key={`emote-${part.emote.provider}-${part.emote.id || part.emote.code}-${part.index}`}
+                            style={{
+                              width: `${Math.max(3, part.emote.code.length)}ch`,
+                            }}
+                          >
+                            <img
+                              src={part.emote.url}
+                              alt=""
+                              loading="eager"
+                            />
+                          </span>
+                        ) : (
+                          <span key={`text-${part.index}`}>{part.text}</span>
+                        ),
+                      )}
+                    </div>
+                  )}
                   <textarea
                     ref={textareaRef}
                     value={text}
                     onChange={(e) => setText(e.target.value.slice(0, maxLength))}
+                    onScroll={(e) => {
+                      if (composerMirrorRef.current) {
+                        composerMirrorRef.current.scrollTop = e.currentTarget.scrollTop;
+                        composerMirrorRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                      }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
@@ -2603,26 +2636,6 @@ export default function Home() {
                     rows={1}
                     maxLength={maxLength}
                   />
-                  {composerHasEmotes && (
-                    <div
-                      className="composerEmotePreview"
-                      aria-label="Emotes na mensagem"
-                    >
-                      {composerEmotePreview.map(({ emote, index }) => (
-                        <span
-                          className="composerEmotePreviewItem"
-                          key={`${emote.provider}-${emote.id || emote.code}-${index}`}
-                          title={emote.name || emote.code}
-                        >
-                          <img
-                            src={emote.url}
-                            alt={emote.code}
-                            loading="eager"
-                          />
-                        </span>
-                      ))}
-                    </div>
-                  )}
                   <span className="counter">{[...text].length}/{maxLength}</span>
                 </div>
                 <button
