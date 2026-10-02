@@ -2632,6 +2632,7 @@ export default function Home() {
                     }
                     rows={1}
                     maxLength={maxLength}
+                    spellCheck={false}
                   />
                   <span className="counter">{[...text].length}/{maxLength}</span>
                 </div>
