@@ -314,51 +314,21 @@ function kickAvatarFromRaw(raw: any) {
   return null;
 }
 
-function kickMessageSlug(message: Message) {
-  const rawSlug =
-    message.raw?.sender?.slug ||
-    message.raw?.sender?.channel_slug ||
-    message.raw?.user?.slug ||
-    "";
-  const value = String(rawSlug || message.author_name || "")
-    .trim()
-    .replace(/^@/, "")
-    .toLowerCase();
-  return value || null;
-}
-
-function kickAvatarCacheKey(message: Message) {
-  const id = String(message.author_id || "").trim();
-  if (id) return `id:${id}`;
-  const slug = kickMessageSlug(message);
-  return slug ? `slug:${slug}` : null;
-}
-
-function kickAvatarFromProfilePayload(payload: any) {
-  const candidates = [
-    payload?.profile_pic,
-    payload?.profile_picture,
-    payload?.profilepic,
-    payload?.profilePic,
-    payload?.profilePicture,
-    payload?.avatar,
-    payload?.avatar_url,
-    payload?.user?.profile_pic,
-    payload?.user?.profile_picture,
-    payload?.user?.profilepic,
-    payload?.data?.profile_pic,
-    payload?.data?.profile_picture,
-    payload?.data?.profilepic,
-    payload?.data?.user?.profile_pic,
-    payload?.data?.user?.profile_picture,
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = normalizeAvatarUrl(candidate);
-    if (normalized) return normalized;
+function messageEmbeddedAvatar(message: Message) {
+  if (message.platform === "kick") {
+    return (
+      normalizeAvatarUrl(message.author_avatar) ||
+      kickAvatarFromRaw(message.raw)
+    );
   }
 
-  return null;
+  return typeof message.author_avatar === "string" && message.author_avatar.trim()
+    ? message.author_avatar.trim()
+    : null;
+}
+
+function mergedAuthorAvatar(previous: Message, incoming: Message) {
+  return messageEmbeddedAvatar(incoming) || messageEmbeddedAvatar(previous) || null;
 }
 
 function cleanReplyPreview(value: unknown) {
@@ -491,12 +461,7 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
-  const [kickAvatarCache, setKickAvatarCache] = useState<Record<string, string | null>>({});
   const [brokenAvatarUrls, setBrokenAvatarUrls] = useState<Record<string, true>>({});
-  const [kickAvatarRetryTick, setKickAvatarRetryTick] = useState(0);
-  const kickAvatarPendingRef = useRef(new Set<string>());
-  const kickAvatarRetryCountRef = useRef(new Map<string, number>());
-  const kickAvatarRetryTimersRef = useRef(new Map<string, number>());
   const lastId = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
@@ -574,6 +539,7 @@ export default function Home() {
             ...existing,
             ...message,
             id: existing.id ?? message.id,
+            author_avatar: mergedAuthorAvatar(existing, message),
           };
         }
       }
@@ -873,6 +839,7 @@ export default function Home() {
               ...previous,
               ...incoming,
               id: previous.id ?? incoming.id,
+              author_avatar: mergedAuthorAvatar(previous, incoming),
               badges:
                 incomingV2.length || (incoming.badges || []).length
                   ? incoming.badges
@@ -1065,6 +1032,7 @@ export default function Home() {
             ...previous,
             ...incoming,
             id: previous.id ?? incoming.id,
+            author_avatar: mergedAuthorAvatar(previous, incoming),
           };
           return next;
         }
@@ -1446,218 +1414,50 @@ export default function Home() {
     [messages, filter],
   );
 
+  const knownAuthorAvatars = useMemo(() => {
+    const known = new Map<string, string>();
+
+    for (const message of messages) {
+      const avatar = messageEmbeddedAvatar(message);
+      if (!avatar || brokenAvatarUrls[avatar]) continue;
+
+      const id = String(message.author_id || "").trim();
+      if (id) known.set(`${message.platform}:id:${id}`, avatar);
+
+      const name = message.author_name.trim().toLocaleLowerCase();
+      if (name) known.set(`${message.platform}:name:${name}`, avatar);
+    }
+
+    return known;
+  }, [messages, brokenAvatarUrls]);
+
   function messageAvatarUrl(message: Message) {
-    const direct =
-      normalizeAvatarUrl(message.author_avatar) ||
-      (message.platform === "kick" ? kickAvatarFromRaw(message.raw) : null);
-
+    const direct = messageEmbeddedAvatar(message);
     if (direct && !brokenAvatarUrls[direct]) return direct;
-    if (message.platform !== "kick") return null;
 
-    const key = kickAvatarCacheKey(message);
-    if (!key) return null;
-    const cached = kickAvatarCache[key];
-    return cached && !brokenAvatarUrls[cached] ? cached : null;
+    const id = String(message.author_id || "").trim();
+    if (id) {
+      const byId = knownAuthorAvatars.get(`${message.platform}:id:${id}`);
+      if (byId && !brokenAvatarUrls[byId]) return byId;
+    }
+
+    const name = message.author_name.trim().toLocaleLowerCase();
+    if (name) {
+      const byName = knownAuthorAvatars.get(
+        `${message.platform}:name:${name}`,
+      );
+      if (byName && !brokenAvatarUrls[byName]) return byName;
+    }
+
+    return null;
   }
 
-  function markAvatarBroken(message: Message | null, url: string) {
+  function markAvatarBroken(_message: Message | null, url: string) {
     if (!url) return;
     setBrokenAvatarUrls((previous) =>
       previous[url] ? previous : { ...previous, [url]: true },
     );
-
-    if (message?.platform === "kick") {
-      const key = kickAvatarCacheKey(message);
-      if (key && kickAvatarCache[key] === url) {
-        setKickAvatarCache((previous) => {
-          const next = { ...previous };
-          delete next[key];
-          return next;
-        });
-      }
-    }
   }
-
-  useEffect(() => {
-    let cancelled = false;
-    const roomSlug = String(channels.kick?.channelName || "")
-      .trim()
-      .replace(/^@/, "")
-      .toLowerCase();
-
-    const targets = visible
-      .filter((message) => message.platform === "kick")
-      .map((message) => {
-        const key = kickAvatarCacheKey(message);
-        const slug = kickMessageSlug(message);
-        const username = String(message.author_name || slug || "")
-          .trim()
-          .replace(/^@/, "");
-        const direct =
-          normalizeAvatarUrl(message.author_avatar) ||
-          kickAvatarFromRaw(message.raw);
-        const usableDirect = direct && !brokenAvatarUrls[direct];
-
-        if (
-          !key ||
-          !username ||
-          usableDirect ||
-          kickAvatarPendingRef.current.has(key) ||
-          Object.prototype.hasOwnProperty.call(kickAvatarCache, key)
-        ) {
-          return null;
-        }
-
-        const retryCount = kickAvatarRetryCountRef.current.get(key) || 0;
-        if (retryCount >= 6) {
-          return null;
-        }
-
-        return {
-          key,
-          slug: slug || username.toLowerCase(),
-          username,
-          retryCount,
-        };
-      })
-      .filter(
-        (
-          entry,
-        ): entry is {
-          key: string;
-          slug: string;
-          username: string;
-          retryCount: number;
-        } => Boolean(entry),
-      )
-      .filter(
-        (entry, index, array) =>
-          array.findIndex((candidate) => candidate.key === entry.key) === index,
-      )
-      .slice(0, 24);
-
-    if (!targets.length) return;
-
-    for (const target of targets) {
-      kickAvatarPendingRef.current.add(target.key);
-    }
-
-    const fetchKickProfile = async (url: string) => {
-      try {
-        const response = await fetch(url, {
-          cache: "no-store",
-          credentials: "omit",
-          headers: { Accept: "application/json" },
-        });
-        if (!response.ok) return null;
-        return await response.json();
-      } catch {
-        return null;
-      }
-    };
-
-    Promise.all(
-      targets.map(async ({ key, slug, username, retryCount }) => {
-        const endpoints = [
-          ...(roomSlug
-            ? [
-                `https://kick.com/api/v2/channels/${encodeURIComponent(
-                  roomSlug,
-                )}/users/${encodeURIComponent(username.toLowerCase())}`,
-              ]
-            : []),
-          `https://kick.com/api/v1/users/${encodeURIComponent(
-            username.toLowerCase(),
-          )}`,
-          `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`,
-        ];
-
-        for (const endpoint of endpoints) {
-          const payload = await fetchKickProfile(endpoint);
-          const avatar = kickAvatarFromProfilePayload(payload);
-          if (avatar && !brokenAvatarUrls[avatar]) {
-            return { key, avatar, retryCount };
-          }
-        }
-
-        return { key, avatar: null, retryCount };
-      }),
-    ).then((results) => {
-      for (const target of targets) {
-        kickAvatarPendingRef.current.delete(target.key);
-      }
-      if (cancelled) return;
-
-      const recovered = results.filter(
-        (result): result is typeof result & { avatar: string } =>
-          Boolean(result.avatar),
-      );
-      const unresolved = results.filter((result) => !result.avatar);
-
-      for (const result of recovered) {
-        kickAvatarRetryCountRef.current.delete(result.key);
-        const timer = kickAvatarRetryTimersRef.current.get(result.key);
-        if (timer) {
-          window.clearTimeout(timer);
-          kickAvatarRetryTimersRef.current.delete(result.key);
-        }
-      }
-
-      if (recovered.length) {
-        setKickAvatarCache((previous) => {
-          const next = { ...previous };
-          for (const result of recovered) {
-            next[result.key] = result.avatar;
-          }
-          return next;
-        });
-      }
-
-      for (const result of unresolved) {
-        const nextAttempt = result.retryCount + 1;
-        kickAvatarRetryCountRef.current.set(result.key, nextAttempt);
-
-        if (nextAttempt >= 6) {
-          setKickAvatarCache((previous) =>
-            Object.prototype.hasOwnProperty.call(previous, result.key)
-              ? previous
-              : { ...previous, [result.key]: null },
-          );
-          continue;
-        }
-
-        if (kickAvatarRetryTimersRef.current.has(result.key)) continue;
-
-        const retryDelays = [800, 1600, 3000, 5000, 8000];
-        const delay =
-          retryDelays[Math.min(nextAttempt - 1, retryDelays.length - 1)];
-        const timer = window.setTimeout(() => {
-          kickAvatarRetryTimersRef.current.delete(result.key);
-          setKickAvatarRetryTick((value) => value + 1);
-        }, delay);
-        kickAvatarRetryTimersRef.current.set(result.key, timer);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    visible,
-    kickAvatarCache,
-    brokenAvatarUrls,
-    channels.kick?.channelName,
-    kickAvatarRetryTick,
-  ]);
-
-  useEffect(() => {
-    kickAvatarRetryCountRef.current.clear();
-    for (const timer of kickAvatarRetryTimersRef.current.values()) {
-      window.clearTimeout(timer);
-    }
-    kickAvatarRetryTimersRef.current.clear();
-    setKickAvatarCache({});
-  }, [channels.kick?.channelId]);
 
   const counts = useMemo(() => ({
     twitch: messages.filter((m) => m.platform === "twitch").length,
