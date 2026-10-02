@@ -38,9 +38,53 @@ function kickBadges(event: any) {
 
   const types = new Set(
     badges
-      .map((badge: any) => String(badge?.type || "").toLowerCase())
+      .map((badge: any) =>
+        String(badge?.name || badge?.type || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]/g, ""),
+      )
       .filter(Boolean),
   );
+
+  // A interface atual da Kick usa badges_v2 para badges globais, incluindo
+  // "level". Para level, o número exibido vem de metadata.level.
+  const badgesV2 = Array.isArray(event?.sender?.identity?.badges_v2)
+    ? event.sender.identity.badges_v2
+    : [];
+
+  for (const badge of badgesV2) {
+    const name = String(badge?.name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "");
+    if (!name || types.has(name)) continue;
+
+    if (name === "level") {
+      const level = Number(badge?.metadata?.level);
+      if (Number.isInteger(level) && level >= 1 && level <= 99) {
+        badges.push({
+          type: "level",
+          name: "level",
+          text: `Level ${level}`,
+          count: level,
+          metadata: badge?.metadata || { level },
+          image_url:
+            typeof badge?.image_url === "string" ? badge.image_url : undefined,
+        });
+        types.add("level");
+      }
+      continue;
+    }
+
+    badges.push({
+      type: name,
+      name,
+      text: String(badge?.text || badge?.name || name),
+      metadata: badge?.metadata,
+      image_url:
+        typeof badge?.image_url === "string" ? badge.image_url : undefined,
+    });
+    types.add(name);
+  }
 
   if (
     event?.sender?.user_id &&
