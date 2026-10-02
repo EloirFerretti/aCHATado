@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, PointerEvent, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Platform = "twitch" | "kick" | "youtube";
 type MessageBadge = {
@@ -1873,7 +1873,7 @@ export default function Home() {
     }
   }
 
-  function beginProfileDrag(event: React.PointerEvent<HTMLDivElement>) {
+  function beginProfileDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("button, a, input, textarea, select")) return;
@@ -1890,7 +1890,7 @@ export default function Home() {
     event.preventDefault();
   }
 
-  function moveProfileDrag(event: React.PointerEvent<HTMLDivElement>) {
+  function moveProfileDrag(event: PointerEvent<HTMLDivElement>) {
     const drag = profileDragRef.current;
     const dialog = profileDialogRef.current;
     if (!drag || drag.pointerId !== event.pointerId || !dialog) return;
@@ -1914,7 +1914,7 @@ export default function Home() {
     });
   }
 
-  function endProfileDrag(event: React.PointerEvent<HTMLDivElement>) {
+  function endProfileDrag(event: PointerEvent<HTMLDivElement>) {
     const drag = profileDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
 
