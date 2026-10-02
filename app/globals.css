@@ -108,8 +108,6 @@ a { color: inherit; text-decoration: none; }
 .mergeButton:hover { background:#272e3b; }
 .mergeButton:disabled { opacity:.55; cursor:wait; }
 .tinyButton.disabled { opacity:.55; cursor:not-allowed; }
-.dbStatus { margin:18px 10px 2px; padding-top:13px; border-top:1px solid #252b37; color:#656e7e; font-size:9px; }
-.dbStatus b { color:#8f98a8; font-weight:700; }
 .sendingTo { color:#7c8494 !important; font-size:9px !important; text-transform:none !important; letter-spacing:0 !important; }
 .workspace { margin-top:14px; min-height:calc(100vh - 330px); }
 .chatPanel { height:calc(100vh - 330px); min-height:560px; }
@@ -698,9 +696,6 @@ a { color: inherit; text-decoration: none; }
 }
 .popupSettingsBody .accountsTitle {
   margin-top:22px;
-}
-.popupSettingsBody .dbStatus {
-  margin-bottom:0;
 }
 
 @media (max-width:800px) {
