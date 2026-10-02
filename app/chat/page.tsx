@@ -597,7 +597,21 @@ export default function Home() {
 
         setMessages((prev) => {
           const key = `${incoming.platform}:${incoming.platform_message_id}`;
-          if (prev.some((m) => `${m.platform}:${m.platform_message_id}` === key)) return prev;
+          const index = prev.findIndex(
+            (message) =>
+              `${message.platform}:${message.platform_message_id}` === key,
+          );
+
+          if (index >= 0) {
+            const next = [...prev];
+            next[index] = {
+              ...prev[index],
+              ...incoming,
+              id: prev[index].id ?? incoming.id,
+            };
+            return next;
+          }
+
           return [...prev, incoming].slice(-500);
         });
       } catch {
@@ -608,8 +622,70 @@ export default function Home() {
     // Apenas reconciliação de segurança; as mensagens chegam por SSE em tempo real.
     const reconcile = window.setInterval(() => loadMessages(false), 30_000);
 
+    let kickTimer: number | undefined;
     let youtubeTimer: number | undefined;
     let cancelled = false;
+
+    const mergeEnrichedKickMessages = (incoming: Message[]) => {
+      if (!incoming.length) return;
+
+      setMessages((prev) => {
+        const next = [...prev];
+
+        for (const message of incoming) {
+          const key = `${message.platform}:${message.platform_message_id}`;
+          const index = next.findIndex(
+            (current) =>
+              `${current.platform}:${current.platform_message_id}` === key,
+          );
+
+          if (index >= 0) {
+            next[index] = {
+              ...next[index],
+              ...message,
+              id: next[index].id ?? message.id,
+            };
+          } else {
+            next.push(message);
+          }
+        }
+
+        next.sort(
+          (a, b) =>
+            new Date(a.created_at).getTime() -
+            new Date(b.created_at).getTime(),
+        );
+        return next.slice(-500);
+      });
+    };
+
+    const syncKick = async () => {
+      const channel = channels.kick;
+      if (cancelled || !channel?.channelId || !channel.channelName) return;
+
+      let delay = 8_000;
+      try {
+        const res = await fetch("/api/kick/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channelId: channel.channelId,
+            channelName: channel.channelName,
+          }),
+        });
+        const json = await res.json().catch(() => null);
+
+        if (res.ok && Array.isArray(json?.messages)) {
+          mergeEnrichedKickMessages(json.messages as Message[]);
+        } else {
+          delay = 20_000;
+        }
+      } catch {
+        delay = 20_000;
+      }
+
+      if (!cancelled) kickTimer = window.setTimeout(syncKick, delay);
+    };
 
     const syncYouTube = async () => {
       const channel = channels.youtube;
@@ -699,12 +775,14 @@ export default function Home() {
       if (!cancelled) youtubeTimer = window.setTimeout(syncYouTube, delay);
     };
 
+    syncKick();
     syncYouTube();
 
     return () => {
       cancelled = true;
       events.close();
       clearInterval(reconcile);
+      if (kickTimer) clearTimeout(kickTimer);
       if (youtubeTimer) clearTimeout(youtubeTimer);
     };
   }, [ready, channelKey]);
@@ -1492,6 +1570,9 @@ export default function Home() {
             const asset =
               subscriberBadge?.imageUrl ||
               kickLevelBadgeAsset(level) ||
+              (typeof badge.image_url === "string" && badge.image_url
+                ? badge.image_url
+                : null) ||
               kickBadgeAsset(type, count);
 
             if (asset) {
