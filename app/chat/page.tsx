@@ -1271,8 +1271,27 @@ export default function Home() {
     return selected;
   }
 
-  function kickBadgeAsset(type: string) {
+  function kickSubGifterBadgeAsset(count: number | null) {
+    const total = Math.max(0, Number(count || 0));
+    const base = "https://www.kickdatabase.com/kickBadges/";
+    if (total >= 200) return `${base}subGifter200.svg`;
+    if (total >= 100) return `${base}subGifter100.svg`;
+    if (total >= 50) return `${base}subGifter50.svg`;
+    if (total >= 25) return `${base}subGifter25.svg`;
+    return `${base}subGifter.svg`;
+  }
+
+  function kickBadgeAsset(type: string, count: number | null = null) {
     const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+
+    if (
+      normalized === "sub_gifter" ||
+      normalized === "subgifter" ||
+      normalized === "sub-gifter"
+    ) {
+      return kickSubGifterBadgeAsset(count);
+    }
+
     const assets: Record<string, string> = {
       broadcaster: "/badges/kick/broadcaster.svg",
       owner: "/badges/kick/broadcaster.svg",
@@ -1290,9 +1309,6 @@ export default function Home() {
       founding_subscriber: "/badges/kick/founder.svg",
       subscriber: "/badges/kick/subscriber.svg",
       sub: "/badges/kick/subscriber.svg",
-      sub_gifter: "/badges/kick/sub-gifter.svg",
-      subgifter: "/badges/kick/sub-gifter.svg",
-      "sub-gifter": "/badges/kick/sub-gifter.svg",
       staff: "/badges/kick/staff.svg",
       kick_staff: "/badges/kick/staff.svg",
       bot: "/badges/kick/bot.svg",
@@ -1390,7 +1406,8 @@ export default function Home() {
               type === "subscriber"
                 ? kickSubscriberBadgeForCount(count)
                 : null;
-            const asset = subscriberBadge?.imageUrl || kickBadgeAsset(type);
+            const asset =
+              subscriberBadge?.imageUrl || kickBadgeAsset(type, count);
 
             if (asset) {
               return (
