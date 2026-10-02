@@ -493,7 +493,10 @@ export default function Home() {
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
   const [kickAvatarCache, setKickAvatarCache] = useState<Record<string, string | null>>({});
   const [brokenAvatarUrls, setBrokenAvatarUrls] = useState<Record<string, true>>({});
+  const [kickAvatarRetryTick, setKickAvatarRetryTick] = useState(0);
   const kickAvatarPendingRef = useRef(new Set<string>());
+  const kickAvatarRetryCountRef = useRef(new Map<string, number>());
+  const kickAvatarRetryTimersRef = useRef(new Map<string, number>());
   const lastId = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
@@ -1505,19 +1508,33 @@ export default function Home() {
           return null;
         }
 
-        return { key, slug: slug || username.toLowerCase(), username };
+        const retryCount = kickAvatarRetryCountRef.current.get(key) || 0;
+        if (retryCount >= 6) {
+          return null;
+        }
+
+        return {
+          key,
+          slug: slug || username.toLowerCase(),
+          username,
+          retryCount,
+        };
       })
       .filter(
         (
           entry,
-        ): entry is { key: string; slug: string; username: string } =>
-          Boolean(entry),
+        ): entry is {
+          key: string;
+          slug: string;
+          username: string;
+          retryCount: number;
+        } => Boolean(entry),
       )
       .filter(
         (entry, index, array) =>
           array.findIndex((candidate) => candidate.key === entry.key) === index,
       )
-      .slice(0, 12);
+      .slice(0, 24);
 
     if (!targets.length) return;
 
@@ -1540,7 +1557,7 @@ export default function Home() {
     };
 
     Promise.all(
-      targets.map(async ({ key, slug, username }) => {
+      targets.map(async ({ key, slug, username, retryCount }) => {
         const endpoints = [
           ...(roomSlug
             ? [
@@ -1559,11 +1576,11 @@ export default function Home() {
           const payload = await fetchKickProfile(endpoint);
           const avatar = kickAvatarFromProfilePayload(payload);
           if (avatar && !brokenAvatarUrls[avatar]) {
-            return { key, avatar };
+            return { key, avatar, retryCount };
           }
         }
 
-        return { key, avatar: null };
+        return { key, avatar: null, retryCount };
       }),
     ).then((results) => {
       for (const target of targets) {
@@ -1571,13 +1588,55 @@ export default function Home() {
       }
       if (cancelled) return;
 
-      setKickAvatarCache((previous) => {
-        const next = { ...previous };
-        for (const result of results) {
-          next[result.key] = result.avatar;
+      const recovered = results.filter(
+        (result): result is typeof result & { avatar: string } =>
+          Boolean(result.avatar),
+      );
+      const unresolved = results.filter((result) => !result.avatar);
+
+      for (const result of recovered) {
+        kickAvatarRetryCountRef.current.delete(result.key);
+        const timer = kickAvatarRetryTimersRef.current.get(result.key);
+        if (timer) {
+          window.clearTimeout(timer);
+          kickAvatarRetryTimersRef.current.delete(result.key);
         }
-        return next;
-      });
+      }
+
+      if (recovered.length) {
+        setKickAvatarCache((previous) => {
+          const next = { ...previous };
+          for (const result of recovered) {
+            next[result.key] = result.avatar;
+          }
+          return next;
+        });
+      }
+
+      for (const result of unresolved) {
+        const nextAttempt = result.retryCount + 1;
+        kickAvatarRetryCountRef.current.set(result.key, nextAttempt);
+
+        if (nextAttempt >= 6) {
+          setKickAvatarCache((previous) =>
+            Object.prototype.hasOwnProperty.call(previous, result.key)
+              ? previous
+              : { ...previous, [result.key]: null },
+          );
+          continue;
+        }
+
+        if (kickAvatarRetryTimersRef.current.has(result.key)) continue;
+
+        const retryDelays = [800, 1600, 3000, 5000, 8000];
+        const delay =
+          retryDelays[Math.min(nextAttempt - 1, retryDelays.length - 1)];
+        const timer = window.setTimeout(() => {
+          kickAvatarRetryTimersRef.current.delete(result.key);
+          setKickAvatarRetryTick((value) => value + 1);
+        }, delay);
+        kickAvatarRetryTimersRef.current.set(result.key, timer);
+      }
     });
 
     return () => {
@@ -1588,7 +1647,17 @@ export default function Home() {
     kickAvatarCache,
     brokenAvatarUrls,
     channels.kick?.channelName,
+    kickAvatarRetryTick,
   ]);
+
+  useEffect(() => {
+    kickAvatarRetryCountRef.current.clear();
+    for (const timer of kickAvatarRetryTimersRef.current.values()) {
+      window.clearTimeout(timer);
+    }
+    kickAvatarRetryTimersRef.current.clear();
+    setKickAvatarCache({});
+  }, [channels.kick?.channelId]);
 
   const counts = useMemo(() => ({
     twitch: messages.filter((m) => m.platform === "twitch").length,
