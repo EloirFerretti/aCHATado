@@ -603,11 +603,30 @@ export default function Home() {
           );
 
           if (index >= 0) {
+            const previous = prev[index];
+            const previousV2 = Array.isArray(
+              previous.raw?.sender?.identity?.badges_v2,
+            )
+              ? previous.raw.sender.identity.badges_v2
+              : [];
+            const incomingV2 = Array.isArray(
+              incoming.raw?.sender?.identity?.badges_v2,
+            )
+              ? incoming.raw.sender.identity.badges_v2
+              : [];
             const next = [...prev];
             next[index] = {
-              ...prev[index],
+              ...previous,
               ...incoming,
-              id: prev[index].id ?? incoming.id,
+              id: previous.id ?? incoming.id,
+              badges:
+                incomingV2.length || (incoming.badges || []).length
+                  ? incoming.badges
+                  : previous.badges,
+              raw:
+                previousV2.length && !incomingV2.length
+                  ? previous.raw
+                  : incoming.raw,
             };
             return next;
           }
@@ -622,70 +641,8 @@ export default function Home() {
     // Apenas reconciliação de segurança; as mensagens chegam por SSE em tempo real.
     const reconcile = window.setInterval(() => loadMessages(false), 30_000);
 
-    let kickTimer: number | undefined;
     let youtubeTimer: number | undefined;
     let cancelled = false;
-
-    const mergeEnrichedKickMessages = (incoming: Message[]) => {
-      if (!incoming.length) return;
-
-      setMessages((prev) => {
-        const next = [...prev];
-
-        for (const message of incoming) {
-          const key = `${message.platform}:${message.platform_message_id}`;
-          const index = next.findIndex(
-            (current) =>
-              `${current.platform}:${current.platform_message_id}` === key,
-          );
-
-          if (index >= 0) {
-            next[index] = {
-              ...next[index],
-              ...message,
-              id: next[index].id ?? message.id,
-            };
-          } else {
-            next.push(message);
-          }
-        }
-
-        next.sort(
-          (a, b) =>
-            new Date(a.created_at).getTime() -
-            new Date(b.created_at).getTime(),
-        );
-        return next.slice(-500);
-      });
-    };
-
-    const syncKick = async () => {
-      const channel = channels.kick;
-      if (cancelled || !channel?.channelId || !channel.channelName) return;
-
-      let delay = 8_000;
-      try {
-        const res = await fetch("/api/kick/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            channelId: channel.channelId,
-            channelName: channel.channelName,
-          }),
-        });
-        const json = await res.json().catch(() => null);
-
-        if (res.ok && Array.isArray(json?.messages)) {
-          mergeEnrichedKickMessages(json.messages as Message[]);
-        } else {
-          delay = 20_000;
-        }
-      } catch {
-        delay = 20_000;
-      }
-
-      if (!cancelled) kickTimer = window.setTimeout(syncKick, delay);
-    };
 
     const syncYouTube = async () => {
       const channel = channels.youtube;
@@ -775,17 +732,254 @@ export default function Home() {
       if (!cancelled) youtubeTimer = window.setTimeout(syncYouTube, delay);
     };
 
-    syncKick();
     syncYouTube();
 
     return () => {
       cancelled = true;
       events.close();
       clearInterval(reconcile);
-      if (kickTimer) clearTimeout(kickTimer);
       if (youtubeTimer) clearTimeout(youtubeTimer);
     };
   }, [ready, channelKey]);
+
+  useEffect(() => {
+    const channel = channels.kick;
+    if (!ready || !channel?.channelId || !channel.channelName) return;
+
+    const slug = channel.channelName
+      .trim()
+      .replace(/^@/, "")
+      .replace(/^https?:\/\/(?:www\.)?kick\.com\//i, "")
+      .split(/[/?#]/)[0]
+      .toLowerCase();
+    if (!slug) return;
+
+    const PUSHER_KEY = "32cbd69e4b950bf97679";
+    const PUSHER_URL =
+      `wss://ws-us2.pusher.com/app/${PUSHER_KEY}?protocol=7&client=js&version=8.4.0&flash=false`;
+
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let pingTimer: number | undefined;
+    let chatroomId: string | null = null;
+
+    const clearSocket = () => {
+      if (pingTimer) {
+        window.clearInterval(pingTimer);
+        pingTimer = undefined;
+      }
+      if (socket) {
+        const current = socket;
+        socket = null;
+        current.onopen = null;
+        current.onmessage = null;
+        current.onerror = null;
+        current.onclose = null;
+        try {
+          current.close();
+        } catch {
+          // noop
+        }
+      }
+    };
+
+    const createdAtIso = (value: unknown) => {
+      if (typeof value === "number") {
+        const milliseconds = value < 10_000_000_000 ? value * 1000 : value;
+        const date = new Date(milliseconds);
+        if (!Number.isNaN(date.getTime())) return date.toISOString();
+      }
+      const date = new Date(String(value || ""));
+      return Number.isNaN(date.getTime())
+        ? new Date().toISOString()
+        : date.toISOString();
+    };
+
+    const mergeKickMessage = (incoming: Message) => {
+      setMessages((prev) => {
+        const key = `${incoming.platform}:${incoming.platform_message_id}`;
+        const index = prev.findIndex(
+          (message) =>
+            `${message.platform}:${message.platform_message_id}` === key,
+        );
+
+        if (index >= 0) {
+          const next = [...prev];
+          const previous = next[index];
+          next[index] = {
+            ...previous,
+            ...incoming,
+            id: previous.id ?? incoming.id,
+          };
+          return next;
+        }
+
+        return [...prev, incoming]
+          .sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() -
+              new Date(b.created_at).getTime(),
+          )
+          .slice(-500);
+      });
+    };
+
+    const connectSocket = () => {
+      if (cancelled || !chatroomId) return;
+      clearSocket();
+
+      const ws = new WebSocket(PUSHER_URL);
+      socket = ws;
+
+      ws.onopen = () => {
+        if (cancelled || socket !== ws) return;
+        pingTimer = window.setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ event: "pusher:ping", data: {} }));
+          }
+        }, 30_000);
+      };
+
+      ws.onmessage = (event) => {
+        if (cancelled || socket !== ws || typeof event.data !== "string") return;
+
+        try {
+          const frame = JSON.parse(event.data);
+
+          if (frame.event === "pusher:connection_established") {
+            ws.send(
+              JSON.stringify({
+                event: "pusher:subscribe",
+                data: {
+                  auth: "",
+                  channel: `chatrooms.${chatroomId}.v2`,
+                },
+              }),
+            );
+            return;
+          }
+
+          if (frame.event === "pusher:ping") {
+            ws.send(JSON.stringify({ event: "pusher:pong", data: {} }));
+            return;
+          }
+
+          if (
+            frame.event !== "App\\Events\\ChatMessageEvent" &&
+            frame.event !== "App\\Events\\ChatMessageSentEvent"
+          ) {
+            return;
+          }
+
+          const raw =
+            typeof frame.data === "string"
+              ? JSON.parse(frame.data)
+              : frame.data;
+          const messageId = String(raw?.id || raw?.message_id || "").trim();
+          if (!messageId || !raw?.sender) return;
+
+          const legacyBadges = Array.isArray(raw.sender?.identity?.badges)
+            ? raw.sender.identity.badges
+            : [];
+          const badgesV2 = Array.isArray(raw.sender?.identity?.badges_v2)
+            ? raw.sender.identity.badges_v2
+            : [];
+
+          mergeKickMessage({
+            platform: "kick",
+            platform_message_id: messageId,
+            channel_id: channel.channelId,
+            author_id:
+              raw.sender?.id != null
+                ? String(raw.sender.id)
+                : raw.sender?.user_id != null
+                  ? String(raw.sender.user_id)
+                  : null,
+            author_name: String(
+              raw.sender?.username || raw.sender?.slug || "Kick user",
+            ),
+            author_avatar:
+              raw.sender?.profile_pic ||
+              raw.sender?.profile_picture ||
+              raw.sender?.profile_image ||
+              null,
+            author_color:
+              raw.sender?.identity?.color ||
+              raw.sender?.identity?.username_color ||
+              null,
+            message: String(raw?.content || "").replace(
+              /\[emote:\d+:([^\]]+)\]/g,
+              "$1",
+            ),
+            created_at: createdAtIso(raw?.created_at || raw?.timestamp),
+            badges: [...legacyBadges, ...badgesV2],
+            raw,
+          });
+        } catch {
+          // Ignore frames unrelated to chat messages.
+        }
+      };
+
+      ws.onerror = () => {
+        if (socket === ws) {
+          try {
+            ws.close();
+          } catch {
+            // noop
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        if (cancelled || socket !== ws) return;
+        socket = null;
+        if (pingTimer) {
+          window.clearInterval(pingTimer);
+          pingTimer = undefined;
+        }
+        reconnectTimer = window.setTimeout(connectSocket, 3_000);
+      };
+    };
+
+    const resolveChatroomAndConnect = async () => {
+      const endpoints = [
+        `https://kick.com/api/v1/channels/${encodeURIComponent(slug)}`,
+        `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`,
+      ];
+
+      for (const endpoint of endpoints) {
+        try {
+          const response = await fetch(endpoint, {
+            cache: "no-store",
+            credentials: "omit",
+          });
+          if (!response.ok) continue;
+          const payload = await response.json();
+          const resolved = Number(payload?.chatroom?.id);
+          if (Number.isInteger(resolved) && resolved > 0) {
+            chatroomId = String(resolved);
+            connectSocket();
+            return;
+          }
+        } catch {
+          // Try the alternate Kick endpoint.
+        }
+      }
+
+      if (!cancelled) {
+        reconnectTimer = window.setTimeout(resolveChatroomAndConnect, 15_000);
+      }
+    };
+
+    resolveChatroomAndConnect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      clearSocket();
+    };
+  }, [ready, channels.kick?.channelId, channels.kick?.channelName]);
 
   useEffect(() => {
     const channel = channels.twitch;
