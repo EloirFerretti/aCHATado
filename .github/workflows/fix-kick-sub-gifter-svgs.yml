@@ -1,0 +1,44 @@
+name: Fix Kick Sub Gifter SVGs
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sanitize and validate SVGs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          files = sorted(Path("public/badges/kick").glob("sub-gifter-*.svg"))
+          assert len(files) == 28, f"expected 28 SVGs, found {len(files)}"
+
+          changed = 0
+          for path in files:
+              text = path.read_text(encoding="utf-8")
+              if text.endswith("\\n"):
+                  text = text[:-2] + "\n"
+                  path.write_text(text, encoding="utf-8")
+                  changed += 1
+              ET.fromstring(path.read_text(encoding="utf-8"))
+
+          print(f"validated={len(files)} changed={changed}")
+          PY
+
+      - name: Commit sanitized SVGs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/badges/kick/sub-gifter-*.svg
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix official Kick Sub Gifter SVG files"
+            git push
+          fi
