@@ -1275,6 +1275,8 @@ export default function Home() {
     const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
     const assets: Record<string, string> = {
       broadcaster: "/badges/kick/broadcaster.svg",
+      owner: "/badges/kick/broadcaster.svg",
+      channel_owner: "/badges/kick/broadcaster.svg",
       host: "/badges/kick/broadcaster.svg",
       streamer: "/badges/kick/broadcaster.svg",
       moderator: "/badges/kick/mod.svg",
@@ -1284,6 +1286,17 @@ export default function Home() {
       vip: "/badges/kick/vip.svg",
       verified: "/badges/kick/verified.svg",
       verificado: "/badges/kick/verified.svg",
+      founder: "/badges/kick/founder.svg",
+      founding_subscriber: "/badges/kick/founder.svg",
+      subscriber: "/badges/kick/subscriber.svg",
+      sub: "/badges/kick/subscriber.svg",
+      sub_gifter: "/badges/kick/sub-gifter.svg",
+      subgifter: "/badges/kick/sub-gifter.svg",
+      "sub-gifter": "/badges/kick/sub-gifter.svg",
+      staff: "/badges/kick/staff.svg",
+      kick_staff: "/badges/kick/staff.svg",
+      bot: "/badges/kick/bot.svg",
+      sidekick: "/badges/kick/sidekick.svg",
     };
     return assets[normalized] || null;
   }
@@ -1291,11 +1304,7 @@ export default function Home() {
   function kickBadgeGlyph(type: string) {
     const normalized = type.toLowerCase().replace(/[^a-z0-9_-]/g, "");
     const glyphs: Record<string, string> = {
-      subscriber: "S",
-      founder: "F",
-      sub_gifter: "G",
-      bot: "B",
-      staff: "K",
+      level: "LV",
     };
     return glyphs[normalized] || normalized.slice(0, 2).toUpperCase() || "?";
   }
