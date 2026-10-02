@@ -2596,9 +2596,6 @@ export default function Home() {
                           <span
                             className="composerRichEmote"
                             key={`emote-${part.emote.provider}-${part.emote.id || part.emote.code}-${part.index}`}
-                            style={{
-                              width: `${Math.max(3, part.emote.code.length)}ch`,
-                            }}
                           >
                             <img
                               src={part.emote.url}
