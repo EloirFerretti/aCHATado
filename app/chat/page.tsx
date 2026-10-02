@@ -825,6 +825,81 @@ export default function Home() {
       });
     };
 
+    const kickMessageFromRaw = (raw: any): Message | null => {
+      const messageId = String(raw?.id || raw?.message_id || "").trim();
+      if (!messageId || !raw?.sender) return null;
+
+      const legacyBadges = Array.isArray(raw.sender?.identity?.badges)
+        ? raw.sender.identity.badges
+        : [];
+      const badgesV2 = Array.isArray(raw.sender?.identity?.badges_v2)
+        ? raw.sender.identity.badges_v2.map((badge: any) => ({
+            ...badge,
+            type: String(badge?.type || badge?.name || "badge"),
+            text: String(badge?.text || badge?.name || "Badge"),
+          }))
+        : [];
+
+      return {
+        platform: "kick",
+        platform_message_id: messageId,
+        channel_id: channel.channelId,
+        author_id:
+          raw.sender?.id != null
+            ? String(raw.sender.id)
+            : raw.sender?.user_id != null
+              ? String(raw.sender.user_id)
+              : null,
+        author_name: String(
+          raw.sender?.username || raw.sender?.slug || "Kick user",
+        ),
+        author_avatar:
+          raw.sender?.profile_pic ||
+          raw.sender?.profile_picture ||
+          raw.sender?.profile_image ||
+          null,
+        author_color:
+          raw.sender?.identity?.color ||
+          raw.sender?.identity?.username_color ||
+          null,
+        message: String(raw?.content || "").replace(
+          /\[emote:\d+:([^\]]+)\]/g,
+          "$1",
+        ),
+        created_at: createdAtIso(raw?.created_at || raw?.timestamp),
+        badges: [...legacyBadges, ...badgesV2],
+        raw,
+      };
+    };
+
+    const loadRecentKickMessages = async () => {
+      if (!chatroomId || cancelled) return;
+      try {
+        const response = await fetch(
+          `https://kick.com/api/v2/channels/${encodeURIComponent(chatroomId)}/messages`,
+          {
+            cache: "no-store",
+            credentials: "omit",
+          },
+        );
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        const recent = Array.isArray(payload?.data?.messages)
+          ? payload.data.messages
+          : Array.isArray(payload?.messages)
+            ? payload.messages
+            : [];
+
+        for (const raw of recent) {
+          const incoming = kickMessageFromRaw(raw);
+          if (incoming) mergeKickMessage(incoming);
+        }
+      } catch {
+        // Live Pusher remains available even if history is temporarily unavailable.
+      }
+    };
+
     const connectSocket = () => {
       if (cancelled || !chatroomId) return;
       clearSocket();
@@ -876,46 +951,8 @@ export default function Home() {
             typeof frame.data === "string"
               ? JSON.parse(frame.data)
               : frame.data;
-          const messageId = String(raw?.id || raw?.message_id || "").trim();
-          if (!messageId || !raw?.sender) return;
-
-          const legacyBadges = Array.isArray(raw.sender?.identity?.badges)
-            ? raw.sender.identity.badges
-            : [];
-          const badgesV2 = Array.isArray(raw.sender?.identity?.badges_v2)
-            ? raw.sender.identity.badges_v2
-            : [];
-
-          mergeKickMessage({
-            platform: "kick",
-            platform_message_id: messageId,
-            channel_id: channel.channelId,
-            author_id:
-              raw.sender?.id != null
-                ? String(raw.sender.id)
-                : raw.sender?.user_id != null
-                  ? String(raw.sender.user_id)
-                  : null,
-            author_name: String(
-              raw.sender?.username || raw.sender?.slug || "Kick user",
-            ),
-            author_avatar:
-              raw.sender?.profile_pic ||
-              raw.sender?.profile_picture ||
-              raw.sender?.profile_image ||
-              null,
-            author_color:
-              raw.sender?.identity?.color ||
-              raw.sender?.identity?.username_color ||
-              null,
-            message: String(raw?.content || "").replace(
-              /\[emote:\d+:([^\]]+)\]/g,
-              "$1",
-            ),
-            created_at: createdAtIso(raw?.created_at || raw?.timestamp),
-            badges: [...legacyBadges, ...badgesV2],
-            raw,
-          });
+          const incoming = kickMessageFromRaw(raw);
+          if (incoming) mergeKickMessage(incoming);
         } catch {
           // Ignore frames unrelated to chat messages.
         }
@@ -959,6 +996,7 @@ export default function Home() {
           const resolved = Number(payload?.chatroom?.id);
           if (Number.isInteger(resolved) && resolved > 0) {
             chatroomId = String(resolved);
+            await loadRecentKickMessages();
             connectSocket();
             return;
           }
