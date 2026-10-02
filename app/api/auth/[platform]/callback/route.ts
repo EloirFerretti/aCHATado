@@ -97,17 +97,86 @@ export async function GET(
     } else {
       const requiredScope = "https://www.googleapis.com/auth/youtube.force-ssl";
       if (session.scope?.length && !session.scope.includes(requiredScope)) {
-        throw new Error("YouTube não concedeu o escopo necessário youtube.force-ssl. Revogue o acesso do aCHATado na Conta Google e conecte novamente.");
+        throw new Error(
+          "YouTube não concedeu o escopo necessário youtube.force-ssl. Revogue o acesso do aCHATado na Conta Google e conecte novamente.",
+        );
       }
-      const me = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", {
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-        cache: "no-store",
-      });
-      const json = await me.json();
-      if (!me.ok || !json?.items?.[0]) throw new Error("não foi possível identificar o canal do YouTube");
-      session.userId = String(json.items[0].id);
-      session.userName = json.items[0].snippet?.title || "YouTube";
-      session.avatar = json.items[0].snippet?.thumbnails?.default?.url;
+
+      const me = await fetch(
+        "https://www.googleapis.com/youtube/v3/channels?part=id,snippet&mine=true",
+        {
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+          cache: "no-store",
+        },
+      );
+      const json = await me.json().catch(() => ({}));
+
+      if (!me.ok) {
+        const reason =
+          json?.error?.errors?.[0]?.reason ||
+          json?.error?.status ||
+          "";
+        const message =
+          json?.error?.message ||
+          `YouTube respondeu ${me.status} ao identificar o canal.`;
+
+        if (
+          me.status === 403 &&
+          /accessnotconfigured|forbidden|youtube data api|disabled/i.test(
+            `${reason} ${message}`,
+          )
+        ) {
+          throw new Error(
+            "A YouTube Data API v3 não está habilitada para este projeto do Google Cloud. Ative a API e tente conectar novamente.",
+          );
+        }
+
+        if (
+          me.status === 403 &&
+          /insufficientpermissions|scope/i.test(`${reason} ${message}`)
+        ) {
+          throw new Error(
+            "O Google não concedeu permissão suficiente para acessar a conta do YouTube. Revogue o acesso do aCHATado e conecte novamente.",
+          );
+        }
+
+        throw new Error(message);
+      }
+
+      const channel = json?.items?.[0];
+      if (channel) {
+        session.userId = String(channel.id);
+        session.userName = channel.snippet?.title || "YouTube";
+        session.avatar = channel.snippet?.thumbnails?.default?.url;
+      } else {
+        // Um token OAuth válido não deve ser descartado só porque o Google
+        // não retornou um canal em channels.list(mine=true). Isso pode ocorrer
+        // em contas sem canal pessoal ou em combinações com Brand Accounts.
+        // O envio/leitura do chat usa o token OAuth e não depende de userId.
+        const profileRes = await fetch(
+          "https://openidconnect.googleapis.com/v1/userinfo",
+          {
+            headers: { Authorization: `Bearer ${session.accessToken}` },
+            cache: "no-store",
+          },
+        );
+        const profile = await profileRes.json().catch(() => ({}));
+
+        if (profileRes.ok) {
+          session.userName =
+            typeof profile?.name === "string" && profile.name.trim()
+              ? profile.name
+              : "YouTube";
+          session.avatar =
+            typeof profile?.picture === "string" ? profile.picture : undefined;
+        } else {
+          session.userName = "YouTube";
+        }
+
+        console.warn(
+          "[youtube-auth] OAuth concluído, mas channels.list(mine=true) não retornou canal.",
+        );
+      }
     }
 
     const redirect = new URL("/chat", origin);
