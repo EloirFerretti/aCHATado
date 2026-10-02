@@ -29,21 +29,6 @@ jobs:
           const PUSHER_URL =
             `wss://ws-us2.pusher.com/app/${PUSHER_KEY}?protocol=7&client=js&version=8.4.0&flash=false`;
 
-          async function sleep(ms) {
-            return new Promise((resolve) => setTimeout(resolve, ms));
-          }
-
-          for (let i = 0; i < 36; i++) {
-            try {
-              const response = await fetch("https://achatado.onrender.com/api/health", {
-                headers: { Accept: "application/json" },
-              });
-              const json = await response.json();
-              if (json?.version === TARGET_COMMIT || json?.version === "unknown") break;
-            } catch {}
-            await sleep(5000);
-          }
-
           const browser = await chromium.launch({ headless: true });
           const context = await browser.newContext({
             viewport: { width: 1280, height: 800 },
