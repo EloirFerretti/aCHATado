@@ -271,7 +271,9 @@ a { color: inherit; text-decoration: none; }
 }
 .composerRichEmote {
   display:inline-flex;
+  width:30px;
   height:20px;
+  margin:0 1px;
   align-items:center;
   justify-content:center;
   vertical-align:middle;
@@ -280,9 +282,14 @@ a { color: inherit; text-decoration: none; }
   display:block;
   width:auto;
   height:auto;
-  max-width:34px;
+  max-width:30px;
   max-height:28px;
   object-fit:contain;
+}
+.textWrap.hasComposerEmotes textarea::selection {
+  background:transparent;
+  color:transparent;
+  -webkit-text-fill-color:transparent;
 }
 
 .emotePickerPanel {
