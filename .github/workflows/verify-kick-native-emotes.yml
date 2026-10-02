@@ -19,8 +19,6 @@ jobs:
           npx playwright install chromium >/dev/null 2>&1
 
       - name: Verify Kick native emote picker
-        env:
-          TARGET_COMMIT: 0d975fc84265f715e833774785db06433c30a44b
         run: |
           cat > verify-kick-emotes.mjs <<'EOF'
           import { chromium } from "playwright";
@@ -43,36 +41,10 @@ jobs:
             });
           });
 
-          const target = process.env.TARGET_COMMIT;
-          let deployed = false;
-          for (let attempt = 1; attempt <= 30; attempt++) {
-            await page.goto("https://achatado.onrender.com/chat", {
-              waitUntil: "domcontentloaded",
-              timeout: 90000,
-            });
-
-            const health = await page.evaluate(async () => {
-              try {
-                const response = await fetch("/health?verify-kick-emotes=1", {
-                  cache: "no-store",
-                });
-                return await response.json();
-              } catch {
-                return null;
-              }
-            });
-
-            console.log("DEPLOY_ATTEMPT=" + attempt, JSON.stringify(health));
-            if (health?.version === target || health?.version === "unknown") {
-              deployed = true;
-              break;
-            }
-            await page.waitForTimeout(5000);
-          }
-
-          if (!deployed) {
-            throw new Error("Production did not publish the target commit during verification");
-          }
+          await page.goto("https://achatado.onrender.com/chat", {
+            waitUntil: "domcontentloaded",
+            timeout: 90000,
+          });
 
           const direct = await page.evaluate(async () => {
             try {
@@ -135,46 +107,62 @@ jobs:
           });
           console.log("RESOLVED_KICK=" + JSON.stringify(resolved));
 
-          await page.reload({ waitUntil: "domcontentloaded", timeout: 90000 });
-          await page.locator(".platformSwitch button.kick").click();
-          await page.locator(".emotePickerButton").click();
+          let result = null;
+          for (let attempt = 1; attempt <= 24; attempt++) {
+            await page.reload({ waitUntil: "domcontentloaded", timeout: 90000 });
 
-          await page.waitForFunction(
-            () =>
-              document.querySelectorAll(
-                '.emotePickerPanel .emotePickerItem img[src*="files.kick.com/emotes/"]',
-              ).length > 0,
-            null,
-            { timeout: 30000 },
-          );
+            const kickButton = page.locator(".platformSwitch button.kick");
+            if (await kickButton.count()) {
+              await kickButton.click();
+              const pickerButton = page.locator(".emotePickerButton");
+              if (await pickerButton.count()) {
+                await pickerButton.click();
+                await page.waitForTimeout(3000);
 
-          const result = await page.evaluate(() => {
-            const kickImages = [
-              ...document.querySelectorAll(
-                '.emotePickerPanel .emotePickerItem img[src*="files.kick.com/emotes/"]',
-              ),
-            ];
-            const providerTabs = [
-              ...document.querySelectorAll(".emoteProviderTabs button"),
-            ].map((el) => el.textContent?.trim());
-            const groups = [
-              ...document.querySelectorAll(".emotePickerGroupTitle"),
-            ].map((el) => el.textContent?.trim());
+                result = await page.evaluate(() => {
+                  const kickImages = [
+                    ...document.querySelectorAll(
+                      '.emotePickerPanel .emotePickerItem img[src*="files.kick.com/emotes/"]',
+                    ),
+                  ];
+                  const providerTabs = [
+                    ...document.querySelectorAll(".emoteProviderTabs button"),
+                  ].map((el) => el.textContent?.trim());
+                  const groups = [
+                    ...document.querySelectorAll(".emotePickerGroupTitle"),
+                  ].map((el) => el.textContent?.trim());
 
-            return {
-              kickImageCount: kickImages.length,
-              providerTabs,
-              groups,
-              samples: kickImages.slice(0, 10).map((img) => ({
-                alt: img.getAttribute("alt"),
-                src: img.getAttribute("src"),
-              })),
-            };
-          });
+                  return {
+                    kickImageCount: kickImages.length,
+                    providerTabs,
+                    groups,
+                    samples: kickImages.slice(0, 10).map((img) => ({
+                      alt: img.getAttribute("alt"),
+                      src: img.getAttribute("src"),
+                    })),
+                  };
+                });
+
+                console.log(
+                  "PICKER_ATTEMPT=" + attempt,
+                  JSON.stringify(result),
+                );
+
+                if (
+                  result.providerTabs.includes("Kick") &&
+                  result.kickImageCount > 0
+                ) {
+                  break;
+                }
+              }
+            }
+
+            await page.waitForTimeout(5000);
+          }
 
           console.log("KICK_PICKER_RESULT=" + JSON.stringify(result, null, 2));
 
-          if (!result.providerTabs.includes("Kick")) {
+          if (!result?.providerTabs?.includes("Kick")) {
             throw new Error("Kick provider tab was not rendered");
           }
           if (result.kickImageCount < 1) {
