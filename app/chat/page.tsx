@@ -49,6 +49,15 @@ type ReplyTarget = {
   message: string;
   channelId: string | null;
 };
+
+type UserProfileTarget = {
+  platform: Platform;
+  authorId: string | null;
+  authorName: string;
+  authorAvatar: string | null;
+  authorColor: string | null;
+  profileUrl: string | null;
+};
 type ResolvedChannel = {
   platform: Platform;
   input: string;
@@ -222,6 +231,20 @@ function profileUrl(message: Message) {
     : null;
 }
 
+function sameProfileAuthor(message: Message, profile: UserProfileTarget) {
+  if (message.platform !== profile.platform) return false;
+
+  const messageAuthorId = String(message.author_id || "").trim();
+  if (profile.authorId && messageAuthorId) {
+    return messageAuthorId === profile.authorId;
+  }
+
+  return (
+    message.author_name.trim().toLocaleLowerCase() ===
+    profile.authorName.trim().toLocaleLowerCase()
+  );
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [filter, setFilter] = useState<"all" | Platform>("all");
@@ -248,6 +271,7 @@ export default function Home() {
   const [pickerScopeUpgradeRequired, setPickerScopeUpgradeRequired] = useState(false);
   const [popupMode, setPopupMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState<UserProfileTarget | null>(null);
   const [resolving, setResolving] = useState(false);
   const [ready, setReady] = useState(false);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
@@ -399,6 +423,15 @@ export default function Home() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [settingsOpen]);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfileOpen(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [profileOpen]);
 
   const channelKey = platforms
     .map((p) => `${p}:${channels[p]?.channelId || ""}:${channels[p]?.liveChatId || ""}`)
@@ -852,7 +885,26 @@ export default function Home() {
     youtube: messages.filter((m) => m.platform === "youtube").length,
   }), [messages]);
 
+  const profileRecentMessages = useMemo(() => {
+    if (!profileOpen) return [];
+    return messages
+      .filter((message) => sameProfileAuthor(message, profileOpen))
+      .slice(-10)
+      .reverse();
+  }, [messages, profileOpen]);
+
   const activeChannelCount = platforms.filter((p) => channels[p]?.channelId).length;
+
+  function openUserProfile(message: Message) {
+    setProfileOpen({
+      platform: message.platform,
+      authorId: message.author_id ? String(message.author_id) : null,
+      authorName: message.author_name,
+      authorAvatar: message.author_avatar || null,
+      authorColor: message.author_color || null,
+      profileUrl: profileUrl(message),
+    });
+  }
 
   function beginReply(message: Message) {
     if (message.platform !== "twitch" && message.platform !== "kick") return;
@@ -1672,23 +1724,17 @@ export default function Home() {
                   })()}
                   <div className="meta">
                     {renderUserBadges(m)}
-                    {profileUrl(m) ? (
-                      <a
-                        className="authorProfileLink"
-                        href={profileUrl(m)!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`Abrir perfil de ${m.author_name}`}
-                      >
-                        <strong style={m.author_color ? { color: m.author_color } : undefined}>
-                          {m.author_name}
-                        </strong>
-                      </a>
-                    ) : (
+                    <button
+                      type="button"
+                      className="authorProfileButton"
+                      onClick={() => openUserProfile(m)}
+                      title={`Ver perfil de ${m.author_name}`}
+                      aria-label={`Ver perfil de ${m.author_name}`}
+                    >
                       <strong style={m.author_color ? { color: m.author_color } : undefined}>
                         {m.author_name}
                       </strong>
-                    )}
+                    </button>
                     <span className={`platformLabel ${m.platform}`}>{labels[m.platform]}</span>
                     <time>{timeLabel(m.created_at)}</time>
                     {(m.platform === "twitch" || m.platform === "kick") && (
@@ -1926,6 +1972,110 @@ export default function Home() {
           </form>
         </section>
       </section>
+
+      {profileOpen && (
+        <div
+          className="userProfileOverlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setProfileOpen(null);
+          }}
+        >
+          <section
+            className={`userProfileDialog ${profileOpen.platform}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="user-profile-title"
+          >
+            <button
+              type="button"
+              className="userProfileClose"
+              onClick={() => setProfileOpen(null)}
+              aria-label="Fechar perfil"
+              title="Fechar"
+            >
+              ×
+            </button>
+
+            <div className="userProfileHeader">
+              <div className={`userProfileAvatar ${profileOpen.platform}`}>
+                {profileOpen.authorAvatar ? (
+                  <img src={profileOpen.authorAvatar} alt="" />
+                ) : (
+                  <span>{avatarFallback(profileOpen.authorName)}</span>
+                )}
+              </div>
+              <div className="userProfileIdentity">
+                <span className={`platformLabel ${profileOpen.platform}`}>
+                  {labels[profileOpen.platform]}
+                </span>
+                <h2
+                  id="user-profile-title"
+                  style={
+                    profileOpen.authorColor
+                      ? { color: profileOpen.authorColor }
+                      : undefined
+                  }
+                >
+                  {profileOpen.authorName}
+                </h2>
+                {profileOpen.profileUrl ? (
+                  <a
+                    className={`userProfileExternalLink ${profileOpen.platform}`}
+                    href={profileOpen.profileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Abrir perfil na {labels[profileOpen.platform]} ↗
+                  </a>
+                ) : (
+                  <span className="userProfileExternalUnavailable">
+                    Link do perfil indisponível
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="userProfileMessagesHeader">
+              <strong>Últimas mensagens</strong>
+              <span>
+                {profileRecentMessages.length
+                  ? `${profileRecentMessages.length} carregadas`
+                  : "Nenhuma mensagem carregada"}
+              </span>
+            </div>
+
+            <div className="userProfileMessages">
+              {profileRecentMessages.length ? (
+                profileRecentMessages.map((message) => (
+                  <button
+                    type="button"
+                    className="userProfileMessage"
+                    key={`${message.platform}-${message.platform_message_id}`}
+                    onClick={() => {
+                      setProfileOpen(null);
+                      requestAnimationFrame(() =>
+                        jumpToMessage(
+                          message.platform,
+                          message.platform_message_id,
+                        ),
+                      );
+                    }}
+                    title="Ir para esta mensagem no chat"
+                  >
+                    <time>{timeLabel(message.created_at)}</time>
+                    <span>{cleanReplyPreview(message.message) || "Mensagem"}</span>
+                  </button>
+                ))
+              ) : (
+                <div className="userProfileEmpty">
+                  Nenhuma mensagem recente deste usuário está carregada.
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {popupMode && settingsOpen && (
         <div
