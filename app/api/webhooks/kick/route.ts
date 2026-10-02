@@ -31,6 +31,33 @@ function cleanKickContent(content: string) {
   return content.replace(/\[emote:\d+:([^\]]+)\]/g, "$1");
 }
 
+function normalizeKickAvatar(value: unknown) {
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  if (raw.startsWith("//")) return `https:${raw}`;
+  if (raw.startsWith("/")) return `https://kick.com${raw}`;
+  return /^https?:\/\//i.test(raw) ? raw : null;
+}
+
+function kickSenderAvatar(sender: any) {
+  for (const candidate of [
+    sender?.profile_picture,
+    sender?.profile_pic,
+    sender?.profile_pic_v2,
+    sender?.profilePicV2,
+    sender?.profilePicture,
+    sender?.profile_image,
+    sender?.profileimage,
+    sender?.avatar,
+    sender?.avatar_url,
+  ]) {
+    const normalized = normalizeKickAvatar(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 function kickBadges(event: any) {
   const badges = Array.isArray(event?.sender?.identity?.badges)
     ? [...event.sender.identity.badges]
@@ -116,7 +143,7 @@ export async function POST(req: NextRequest) {
       channel_id: e.broadcaster?.user_id ? String(e.broadcaster.user_id) : null,
       author_id: e.sender?.user_id ? String(e.sender.user_id) : null,
       author_name: e.sender?.username || "Kick user",
-      author_avatar: e.sender?.profile_picture || null,
+      author_avatar: kickSenderAvatar(e.sender),
       author_color: e.sender?.identity?.username_color || null,
       message: cleanKickContent(String(e.content || "")),
       message_type: "text",
