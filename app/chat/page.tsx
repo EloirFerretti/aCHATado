@@ -2009,16 +2009,21 @@ export default function Home() {
                 <span className={`platformLabel ${profileOpen.platform}`}>
                   {labels[profileOpen.platform]}
                 </span>
-                <h2
-                  id="user-profile-title"
-                  style={
-                    profileOpen.authorColor
-                      ? { color: profileOpen.authorColor }
-                      : undefined
-                  }
-                >
-                  {profileOpen.authorName}
-                </h2>
+                <div className="userProfileNameRow">
+                  {profileRecentMessages[0]
+                    ? renderUserBadges(profileRecentMessages[0])
+                    : null}
+                  <h2
+                    id="user-profile-title"
+                    style={
+                      profileOpen.authorColor
+                        ? { color: profileOpen.authorColor }
+                        : undefined
+                    }
+                  >
+                    {profileOpen.authorName}
+                  </h2>
+                </div>
                 {profileOpen.profileUrl ? (
                   <a
                     className={`userProfileExternalLink ${profileOpen.platform}`}
