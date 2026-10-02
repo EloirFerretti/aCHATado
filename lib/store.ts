@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import type { ChannelFilters, ChatMessage, Platform } from "@/lib/types";
-import { publishChatMessage } from "@/lib/chat-events";
+import { publishChatDeletion, publishChatMessage } from "@/lib/chat-events";
 
 const databaseUrl = process.env.DATABASE_URL;
 const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
@@ -136,6 +136,39 @@ export async function insertMessages(messages: ChatMessage[]) {
 
 export async function insertMessage(message: ChatMessage) {
   await insertMessages([message]);
+}
+
+export async function removeMessage(platform: Platform, platformMessageId: string) {
+  if (!platformMessageId) return;
+
+  if (dbConfigured) {
+    const pg = getPool();
+    if (pg) {
+      await ensurePgSchema();
+      await pg.query(
+        "delete from chat_messages where platform = $1 and platform_message_id = $2",
+        [platform, platformMessageId],
+      );
+    } else {
+      const res = await fetch(
+        `${supabaseUrl}/rest/v1/chat_messages?platform=eq.${encodeURIComponent(platform)}&platform_message_id=eq.${encodeURIComponent(platformMessageId)}`,
+        {
+          method: "DELETE",
+          cache: "no-store",
+          headers: {
+            apikey: supabaseKey!,
+            Authorization: `Bearer ${supabaseKey}`,
+            Prefer: "return=minimal",
+          },
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`Falha ao remover mensagem: ${res.status} ${await res.text()}`);
+      }
+    }
+  }
+
+  publishChatDeletion({ platform, platform_message_id: platformMessageId });
 }
 
 function activeFilters(filters?: ChannelFilters) {
