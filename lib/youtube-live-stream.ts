@@ -141,6 +141,18 @@ function scheduleReconnect(entry: StreamEntry, delayMs: number) {
   }, delayMs);
 }
 
+function scheduleResume(entry: StreamEntry, delayMs = 0) {
+  if (entry.stopped) return;
+  // O StreamList pode concluir uma rodada normalmente. O exemplo oficial do
+  // YouTube abre outra chamada usando o nextPageToken; isso não é uma falha e
+  // não deve colocar o stream em backoff nem acionar o fallback REST.
+  entry.status = "connecting";
+  if (entry.retryTimer) clearTimeout(entry.retryTimer);
+  entry.retryTimer = setTimeout(() => {
+    if (!entry.stopped) startStream(entry);
+  }, delayMs);
+}
+
 function startStream(entry: StreamEntry) {
   if (entry.stopped) return;
   const apiKey = process.env.YOUTUBE_API_KEY;
@@ -224,16 +236,11 @@ function startStream(entry: StreamEntry) {
     }
 
     const resourceExhausted = code === grpc.status.RESOURCE_EXHAUSTED;
-    const quotaLike =
-      resourceExhausted &&
-      /quota|resource has been exhausted|rate limit|too many requests/i.test(text);
 
-    // Quando o Google sinaliza esgotamento de recurso/cota, não martelamos
-    // o endpoint. Um backoff longo evita centenas de reconexões inúteis.
-    scheduleReconnect(
-      entry,
-      quotaLike ? 30 * 60_000 : resourceExhausted ? 60_000 : 5_000,
-    );
+    // Na documentação do streamList, RESOURCE_EXHAUSTED significa que uma nova
+    // leitura foi iniciada antes da taxa de atualização permitida. É um rate
+    // limit do stream, não evidência suficiente de cota diária esgotada.
+    scheduleReconnect(entry, resourceExhausted ? 60_000 : 5_000);
   });
 
   call.on("end", () => {
@@ -242,10 +249,12 @@ function startStream(entry: StreamEntry) {
       entry.status !== "ended" &&
       entry.status !== "backoff"
     ) {
-      console.warn("[youtube-stream] stream ended unexpectedly", {
+      entry.call = null;
+      console.info("[youtube-stream] stream page complete; resuming", {
         liveChatId: entry.liveChatId.slice(0, 12),
+        hasNextPageToken: Boolean(entry.nextPageToken),
       });
-      scheduleReconnect(entry, 3_000);
+      scheduleResume(entry);
     }
   });
 }
