@@ -40,7 +40,10 @@ export async function GET(
       authorizeUrl.searchParams.set("client_id", process.env.TWITCH_CLIENT_ID);
       authorizeUrl.searchParams.set("redirect_uri", redirectUri);
       authorizeUrl.searchParams.set("response_type", "code");
-      authorizeUrl.searchParams.set("scope", "user:write:chat user:read:chat user:read:emotes");
+      authorizeUrl.searchParams.set(
+        "scope",
+        "user:write:chat user:read:chat user:read:emotes moderator:manage:banned_users moderator:manage:chat_messages",
+      );
       authorizeUrl.searchParams.set("state", state);
       authorizeUrl.searchParams.set("force_verify", "false");
     } else if (platform === "kick") {
@@ -53,7 +56,10 @@ export async function GET(
       authorizeUrl.searchParams.set("response_type", "code");
       authorizeUrl.searchParams.set("client_id", process.env.KICK_CLIENT_ID);
       authorizeUrl.searchParams.set("redirect_uri", redirectUri);
-      authorizeUrl.searchParams.set("scope", "user:read channel:read chat:write events:subscribe");
+      authorizeUrl.searchParams.set(
+        "scope",
+        "user:read channel:read chat:write events:subscribe moderation:ban moderation:chat_message:manage",
+      );
       authorizeUrl.searchParams.set("code_challenge", challenge);
       authorizeUrl.searchParams.set("code_challenge_method", "S256");
       authorizeUrl.searchParams.set("state", state);
