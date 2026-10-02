@@ -1,0 +1,197 @@
+name: Verify rich editor caret and selection
+
+on:
+  push:
+    branches:
+      - verify-rich-editor-caret-selection
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          npm install
+          npm run build
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Verify rich editor
+        run: |
+          cat > verify-rich-editor.mjs <<'EOF'
+          import { chromium } from "playwright";
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+          const page = await context.newPage();
+
+          await page.route("**/api/auth/status", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                twitch: { connected: false, configured: true },
+                kick: { connected: true, configured: true, userName: "Kick test" },
+                youtube: { connected: false, configured: true },
+              }),
+            });
+          });
+
+          await page.goto("https://achatado.onrender.com/chat", {
+            waitUntil: "domcontentloaded",
+            timeout: 90000,
+          });
+
+          await page.evaluate(async () => {
+            const response = await fetch("/api/channels/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channels: { twitch: "", kick: "xqc", youtube: "" },
+              }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json?.channels?.kick?.channelId) {
+              throw new Error("Kick channel resolution failed: " + JSON.stringify(json));
+            }
+            localStorage.setItem(
+              "achatado_channel_inputs",
+              JSON.stringify({ twitch: "", kick: "xqc", youtube: "" }),
+            );
+            localStorage.setItem("achatado_channels", JSON.stringify(json.channels));
+          });
+
+          let result = null;
+
+          for (let attempt = 1; attempt <= 30; attempt++) {
+            await page.reload({ waitUntil: "domcontentloaded", timeout: 90000 });
+
+            const kickButton = page.locator(".platformSwitch button.kick");
+            if (!(await kickButton.count())) {
+              await page.waitForTimeout(5000);
+              continue;
+            }
+            await kickButton.click();
+
+            const picker = page.locator(".emotePickerButton");
+            if (!(await picker.count())) {
+              await page.waitForTimeout(5000);
+              continue;
+            }
+            await picker.click();
+            await page.waitForTimeout(2500);
+
+            const native = page
+              .locator(".emotePickerItem")
+              .filter({ has: page.locator('img[src*="files.kick.com/emotes/"]') })
+              .first();
+
+            if (!(await native.count())) {
+              await page.waitForTimeout(5000);
+              continue;
+            }
+
+            const picked = await native.evaluate((button) => {
+              const img = button.querySelector("img");
+              return {
+                code: img?.getAttribute("alt") || "",
+                src: img?.getAttribute("src") || "",
+              };
+            });
+
+            await native.click();
+            const editor = page.locator(".composerRichEditor");
+            await editor.focus();
+            await page.keyboard.type("Teste");
+            await page.waitForTimeout(300);
+
+            result = await page.evaluate((code) => {
+              const root = document.querySelector(".composerRichEditor");
+              const emote = root?.querySelector(".composerRichEmote");
+              if (!root || !emote) return null;
+
+              const emoteRect = emote.getBoundingClientRect();
+              const textNode = [...root.childNodes].find(
+                (node) => node.nodeType === Node.TEXT_NODE && (node.nodeValue || "").includes("Teste"),
+              );
+
+              let textRect = null;
+              if (textNode) {
+                const raw = textNode.nodeValue || "";
+                const start = raw.indexOf("Teste");
+                const range = document.createRange();
+                range.setStart(textNode, start);
+                range.setEnd(textNode, start + 5);
+                const rect = range.getBoundingClientRect();
+                textRect = { left: rect.left, right: rect.right, width: rect.width };
+              }
+
+              const selection = window.getSelection();
+              const range = document.createRange();
+              range.selectNodeContents(root);
+              selection?.removeAllRanges();
+              selection?.addRange(range);
+
+              const selectedRange = selection?.rangeCount
+                ? selection.getRangeAt(0).getBoundingClientRect()
+                : null;
+
+              const selectedText = selection?.toString() || "";
+              const selected = {
+                collapsed: selection?.isCollapsed ?? true,
+                text: selectedText,
+                width: selectedRange?.width || 0,
+              };
+
+              selection?.removeAllRanges();
+
+              return {
+                code,
+                rootText: root.textContent || "",
+                emoteWidth: emoteRect.width,
+                textLeft: textRect?.left || 0,
+                emoteRight: emoteRect.right,
+                gap: textRect ? textRect.left - emoteRect.right : null,
+                selected,
+              };
+            }, picked.code);
+
+            console.log("ATTEMPT=" + attempt + " " + JSON.stringify(result));
+
+            if (
+              result &&
+              result.gap !== null &&
+              result.gap <= 12 &&
+              !result.rootText.includes(picked.code) &&
+              !result.selected.collapsed &&
+              result.selected.width > 30
+            ) {
+              break;
+            }
+
+            await page.waitForTimeout(5000);
+          }
+
+          console.log("RICH_EDITOR_RESULT=" + JSON.stringify(result, null, 2));
+
+          if (!result) throw new Error("Rich editor result not found");
+          if (result.rootText.includes(result.code)) {
+            throw new Error("Hidden emote shortcut is still present in visible editor content");
+          }
+          if (result.gap === null || result.gap > 12) {
+            throw new Error("Caret/text still reserves shortcut-width space after emote");
+          }
+          if (result.selected.collapsed || result.selected.width <= 30) {
+            throw new Error("Rich editor content cannot be selected normally");
+          }
+
+          await browser.close();
+          EOF
+
+          node verify-rich-editor.mjs
