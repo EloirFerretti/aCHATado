@@ -2528,26 +2528,6 @@ export default function Home() {
 
                   </section>
         
-                  <div className="sidebarTitle">EXIBIR MENSAGENS</div>
-                  <button
-                    className={`filterButton ${filter === "all" ? "active" : ""}`}
-                    onClick={() => setFilter("all")}
-                  >
-                    <span className="allIcon">∞</span><span>Todas</span><b>{messages.length}</b>
-                  </button>
-        
-                  {platforms.map((p) => (
-                    <button
-                      key={p}
-                      className={`filterButton ${filter === p ? "active" : ""}`}
-                      onClick={() => setFilter(p)}
-                    >
-                      <span className={`platformIcon ${p}`}>{initials[p]}</span>
-                      <span>{labels[p]}</span>
-                      <b>{counts[p]}</b>
-                    </button>
-                  ))}
-        
                   <div className="sidebarTitle accountsTitle">SUAS CONTAS</div>
                   {platforms.map((p) => (
                     <div className="accountRow" key={p}>
@@ -2613,6 +2593,36 @@ export default function Home() {
               <span>{visible.length} mensagens carregadas</span>
             </div>
             <div className="chatHeaderActions">
+              <div className="chatFilterBar" aria-label="Exibir mensagens">
+                <span className="chatFilterLabel">Exibir mensagens</span>
+                <button
+                  type="button"
+                  className={`chatFilterButton ${filter === "all" ? "active" : ""}`}
+                  onClick={() => setFilter("all")}
+                  aria-pressed={filter === "all"}
+                  title="Exibir mensagens de todas as plataformas"
+                >
+                  <span className="chatFilterIcon all">∞</span>
+                  <span>Todas</span>
+                  <b>{messages.length}</b>
+                </button>
+                {platforms.map((platform) => (
+                  <button
+                    type="button"
+                    key={platform}
+                    className={`chatFilterButton ${platform} ${filter === platform ? "active" : ""}`}
+                    onClick={() => setFilter(platform)}
+                    aria-pressed={filter === platform}
+                    title={`Exibir somente mensagens da ${labels[platform]}`}
+                  >
+                    <span className={`chatFilterIcon ${platform}`}>
+                      {initials[platform]}
+                    </span>
+                    <span>{labels[platform]}</span>
+                    <b>{counts[platform]}</b>
+                  </button>
+                ))}
+              </div>
               <div className="status">
                 <span />
                 {activeChannelCount ? "sincronizando" : "aguardando canais"}
