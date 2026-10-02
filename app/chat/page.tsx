@@ -324,12 +324,51 @@ export default function Home() {
     const incoming: Message[] = json.messages || [];
     if (!incoming.length) return;
     setMessages((prev) => {
-      if (initial) return incoming;
-      const known = new Set(prev.map((m) => `${m.platform}:${m.platform_message_id}`));
-      return [
-        ...prev,
-        ...incoming.filter((m) => !known.has(`${m.platform}:${m.platform_message_id}`)),
-      ].slice(-500);
+      const next = initial ? [...incoming] : [...prev];
+      const positions = new Map(
+        next.map((message, index) => [
+          `${message.platform}:${message.platform_message_id}`,
+          index,
+        ]),
+      );
+
+      for (const message of initial ? prev : incoming) {
+        const key = `${message.platform}:${message.platform_message_id}`;
+        const index = positions.get(key);
+
+        if (index === undefined) {
+          positions.set(key, next.length);
+          next.push(message);
+          continue;
+        }
+
+        const existing = next[index];
+        const existingV2 = Array.isArray(
+          existing.raw?.sender?.identity?.badges_v2,
+        )
+          ? existing.raw.sender.identity.badges_v2
+          : [];
+        const incomingV2 = Array.isArray(
+          message.raw?.sender?.identity?.badges_v2,
+        )
+          ? message.raw.sender.identity.badges_v2
+          : [];
+
+        if (incomingV2.length > existingV2.length) {
+          next[index] = {
+            ...existing,
+            ...message,
+            id: existing.id ?? message.id,
+          };
+        }
+      }
+
+      next.sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() -
+          new Date(b.created_at).getTime(),
+      );
+      return next.slice(-500);
     });
     for (const m of incoming) {
       lastId.current = Math.max(lastId.current, Number(m.id || 0));
