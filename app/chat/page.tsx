@@ -2710,48 +2710,28 @@ export default function Home() {
                 key={`${m.platform}-${m.platform_message_id}`}
               >
                 <div className={`avatarRing ${m.platform}`}>
-                  {profileUrl(m) ? (
-                    <a
-                      className="avatarProfileLink"
-                      href={profileUrl(m)!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={`Abrir perfil de ${m.author_name}`}
-                      aria-label={`Abrir perfil de ${m.author_name}`}
-                    >
-                      <span className="avatarFallback" aria-hidden="true">
-                        {avatarFallback(m.author_name)}
-                      </span>
-                      {messageAvatarUrl(m) && (
-                        <img
-                          src={messageAvatarUrl(m)!}
-                          alt=""
-                          onError={(event) => {
-                            const url = event.currentTarget.src;
-                            event.currentTarget.hidden = true;
-                            markAvatarBroken(m, url);
-                          }}
-                        />
-                      )}
-                    </a>
-                  ) : (
-                    <>
-                      <span className="avatarFallback" aria-hidden="true">
-                        {avatarFallback(m.author_name)}
-                      </span>
-                      {messageAvatarUrl(m) && (
-                        <img
-                          src={messageAvatarUrl(m)!}
-                          alt=""
-                          onError={(event) => {
-                            const url = event.currentTarget.src;
-                            event.currentTarget.hidden = true;
-                            markAvatarBroken(m, url);
-                          }}
-                        />
-                      )}
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    className="avatarProfileLink"
+                    onClick={() => openUserProfile(m)}
+                    title={`Ver perfil de ${m.author_name}`}
+                    aria-label={`Ver perfil de ${m.author_name}`}
+                  >
+                    <span className="avatarFallback" aria-hidden="true">
+                      {avatarFallback(m.author_name)}
+                    </span>
+                    {messageAvatarUrl(m) && (
+                      <img
+                        src={messageAvatarUrl(m)!}
+                        alt=""
+                        onError={(event) => {
+                          const url = event.currentTarget.src;
+                          event.currentTarget.hidden = true;
+                          markAvatarBroken(m, url);
+                        }}
+                      />
+                    )}
+                  </button>
                   <span className={`miniPlatform ${m.platform}`}>{initials[m.platform]}</span>
                 </div>
                 <div className="messageBody">
@@ -3161,7 +3141,9 @@ export default function Home() {
                     title="Ir para esta mensagem no chat"
                   >
                     <time>{timeLabel(message.created_at)}</time>
-                    <span>{cleanReplyPreview(message.message) || "Mensagem"}</span>
+                    <span className="userProfileMessageText">
+                      {renderMessageText(message)}
+                    </span>
                   </button>
                 ))
               ) : (
