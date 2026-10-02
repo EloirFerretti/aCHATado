@@ -392,8 +392,7 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const composerMirrorRef = useRef<HTMLDivElement | null>(null);
+  const composerEditorRef = useRef<HTMLDivElement | null>(null);
   const autoResolveAfterAuth = useRef(false);
   const autoScrollPausedRef = useRef(false);
   const autoScrollingRef = useRef(false);
@@ -1383,7 +1382,7 @@ export default function Home() {
     setError("");
 
     requestAnimationFrame(() => {
-      textareaRef.current?.focus();
+      composerEditorRef.current?.focus();
     });
   }
 
@@ -1459,6 +1458,7 @@ export default function Home() {
       }
 
       setText("");
+      composerEditorRef.current?.replaceChildren();
       setReplyingTo(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao enviar mensagem.");
@@ -1634,24 +1634,204 @@ export default function Home() {
     });
   }, [pickerEmotes, pickerProvider, pickerSearch]);
 
-  const composerRichParts = useMemo(() => {
+  function composerPlainText(root: HTMLElement) {
+    return Array.from(root.childNodes)
+      .map((node) => {
+        if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+        if (node instanceof HTMLElement && node.dataset.emoteCode) {
+          return node.dataset.emoteCode;
+        }
+        if (node.nodeName === "BR") return "\n";
+        return node.textContent || "";
+      })
+      .join("");
+  }
+
+  function composerEmoteElement(emote: PickerEmote) {
+    const wrapper = document.createElement("span");
+    wrapper.className = "composerRichEmote";
+    wrapper.dataset.emoteCode = emote.code;
+    wrapper.contentEditable = "false";
+    wrapper.title = emote.name || emote.code;
+
+    const image = document.createElement("img");
+    image.src = emote.url || "";
+    image.alt = emote.code;
+    image.draggable = false;
+    wrapper.appendChild(image);
+    return wrapper;
+  }
+
+  function placeCaretAfter(node: Node) {
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.setStartAfter(node);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  function hydrateComposer(value: string) {
+    const root = composerEditorRef.current;
+    if (!root) return;
+
     const byCode = new Map<string, PickerEmote>();
     for (const emote of pickerEmotes) {
-      if (!emote.code || !emote.url) continue;
-      if (!byCode.has(emote.code)) byCode.set(emote.code, emote);
+      if (emote.code && emote.url && !byCode.has(emote.code)) {
+        byCode.set(emote.code, emote);
+      }
     }
 
-    return text.split(/(\s+)/).map((part, index) => {
+    const fragment = document.createDocumentFragment();
+    for (const part of value.split(/(\s+)/)) {
       const emote = byCode.get(part);
-      return emote
-        ? { type: "emote" as const, emote, index }
-        : { type: "text" as const, text: part, index };
-    });
-  }, [pickerEmotes, text]);
+      if (emote) fragment.appendChild(composerEmoteElement(emote));
+      else if (part) fragment.appendChild(document.createTextNode(part));
+    }
+    root.replaceChildren(fragment);
+  }
 
-  const composerHasEmotes = composerRichParts.some(
-    (part) => part.type === "emote",
-  );
+  function syncComposerText() {
+    const root = composerEditorRef.current;
+    if (!root) return;
+
+    const next = composerPlainText(root);
+    if (next.length <= maxLength) {
+      setText(next);
+      return;
+    }
+
+    const trimmed = next.slice(0, maxLength);
+    setText(trimmed);
+    hydrateComposer(trimmed);
+    root.focus();
+
+    const selection = window.getSelection();
+    if (selection) {
+      const range = document.createRange();
+      range.selectNodeContents(root);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+
+  function upgradeTypedComposerEmote() {
+    const root = composerEditorRef.current;
+    const selection = window.getSelection();
+    if (
+      !root ||
+      !selection ||
+      !selection.isCollapsed ||
+      !selection.anchorNode ||
+      selection.anchorNode.nodeType !== Node.TEXT_NODE ||
+      !root.contains(selection.anchorNode)
+    ) return;
+
+    const textNode = selection.anchorNode as Text;
+    const offset = selection.anchorOffset;
+    const prefix = textNode.data.slice(0, offset);
+    const match = prefix.match(/(^|\s)([^\s]+)$/);
+    const code = match?.[2] || "";
+    if (!code) return;
+
+    const emote = pickerEmotes.find(
+      (item) => !item.locked && item.code === code && Boolean(item.url),
+    );
+    if (!emote) return;
+
+    const start = offset - code.length;
+    const range = document.createRange();
+    range.setStart(textNode, start);
+    range.setEnd(textNode, offset);
+    range.deleteContents();
+
+    const emoteNode = composerEmoteElement(emote);
+    range.insertNode(emoteNode);
+    placeCaretAfter(emoteNode);
+  }
+
+  function insertPlainComposerText(value: string) {
+    const root = composerEditorRef.current;
+    if (!root || !value) return;
+
+    root.focus();
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    const selectionInside =
+      selection.rangeCount > 0 &&
+      selection.anchorNode &&
+      root.contains(selection.anchorNode);
+
+    const range = selectionInside
+      ? selection.getRangeAt(0)
+      : document.createRange();
+
+    if (!selectionInside) {
+      range.selectNodeContents(root);
+      range.collapse(false);
+    }
+
+    range.deleteContents();
+    const node = document.createTextNode(value);
+    range.insertNode(node);
+    placeCaretAfter(node);
+    syncComposerText();
+  }
+
+  function insertPickerEmote(emote: PickerEmote) {
+    const root = composerEditorRef.current;
+    if (!root) return;
+
+    root.focus();
+    const selection = window.getSelection();
+    const selectionInside =
+      Boolean(selection?.rangeCount) &&
+      Boolean(selection?.anchorNode) &&
+      root.contains(selection!.anchorNode);
+
+    const range = selectionInside
+      ? selection!.getRangeAt(0)
+      : document.createRange();
+
+    if (!selectionInside) {
+      range.selectNodeContents(root);
+      range.collapse(false);
+    }
+
+    range.deleteContents();
+
+    const previous =
+      range.startContainer.nodeType === Node.TEXT_NODE
+        ? (range.startContainer.nodeValue || "").slice(0, range.startOffset)
+        : "";
+
+    if (previous && !/\s$/.test(previous)) {
+      const leading = document.createTextNode(" ");
+      range.insertNode(leading);
+      range.setStartAfter(leading);
+      range.collapse(true);
+    }
+
+    const emoteNode = composerEmoteElement(emote);
+    range.insertNode(emoteNode);
+    range.setStartAfter(emoteNode);
+    range.collapse(true);
+
+    const trailing = document.createTextNode(" ");
+    range.insertNode(trailing);
+    placeCaretAfter(trailing);
+    syncComposerText();
+  }
+
+  useEffect(() => {
+    const root = composerEditorRef.current;
+    if (!root) return;
+    if (document.activeElement !== root) hydrateComposer(text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, selectedTarget?.channelId, auth[selected]?.connected, pickerEmotes]);
 
   const youtubeEmotePattern = useMemo(() => {
     const codes = Object.keys(youtubeEmotes)
@@ -1662,27 +1842,8 @@ export default function Home() {
     const escaped = codes.map((code) =>
       code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
     );
-    return new RegExp(`(${escaped.join("|")})`, "g");
+    return new RegExp("(" + escaped.join("|") + ")", "g");
   }, [youtubeEmotes]);
-
-  function insertPickerEmote(emote: PickerEmote) {
-    const node = textareaRef.current;
-    const start = node?.selectionStart ?? text.length;
-    const end = node?.selectionEnd ?? start;
-    const before = text.slice(0, start);
-    const after = text.slice(end);
-    const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
-    const needsTrailingSpace = after.length === 0 || !/^\s/.test(after);
-    const insertion = `${needsLeadingSpace ? " " : ""}${emote.code}${needsTrailingSpace ? " " : ""}`;
-    const next = `${before}${insertion}${after}`.slice(0, maxLength);
-    const cursor = Math.min(before.length + insertion.length, next.length);
-
-    setText(next);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(cursor, cursor);
-    });
-  }
 
   function renderThirdPartyTwitchText(textValue: string, messageId: string, prefix: string) {
     if (!Object.keys(thirdPartyEmotes).length) return textValue;
@@ -2470,7 +2631,7 @@ export default function Home() {
               </a>
             ) : (
               <div className="inputRow">
-                <div className={`textWrap ${composerHasEmotes ? "hasComposerEmotes" : ""}`}>
+                <div className="textWrap">
                   <button
                     type="button"
                     className={`emotePickerButton ${pickerOpen ? "active" : ""}`}
@@ -2585,54 +2746,39 @@ export default function Home() {
                     </div>
                   )}
 
-                  {composerHasEmotes && (
-                    <div
-                      ref={composerMirrorRef}
-                      className="composerRichMirror"
-                      aria-hidden="true"
-                    >
-                      {composerRichParts.map((part) =>
-                        part.type === "emote" ? (
-                          <span
-                            className="composerRichEmote"
-                            key={`emote-${part.emote.provider}-${part.emote.id || part.emote.code}-${part.index}`}
-                          >
-                            <img
-                              src={part.emote.url}
-                              alt=""
-                              loading="eager"
-                            />
-                          </span>
-                        ) : (
-                          <span key={`text-${part.index}`}>{part.text}</span>
-                        ),
-                      )}
-                    </div>
-                  )}
-                  <textarea
-                    ref={textareaRef}
-                    value={text}
-                    onChange={(e) => setText(e.target.value.slice(0, maxLength))}
-                    onScroll={(e) => {
-                      if (composerMirrorRef.current) {
-                        composerMirrorRef.current.scrollTop = e.currentTarget.scrollTop;
-                        composerMirrorRef.current.scrollLeft = e.currentTarget.scrollLeft;
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        e.currentTarget.form?.requestSubmit();
-                      }
-                    }}
-                    placeholder={
+                  <div
+                    ref={composerEditorRef}
+                    className="composerRichEditor"
+                    contentEditable
+                    suppressContentEditableWarning
+                    role="textbox"
+                    aria-multiline="true"
+                    aria-label="Mensagem"
+                    data-placeholder={
                       replyingTo?.platform === selected
-                        ? `Responder a ${replyingTo.authorName} como ${auth[selected]?.userName || "você"}...`
-                        : `Mensagem como ${auth[selected]?.userName || "você"} em ${selectedTarget.channelName}...`
+                        ? "Responder a " + replyingTo.authorName + " como " + (auth[selected]?.userName || "você") + "..."
+                        : "Mensagem como " + (auth[selected]?.userName || "você") + " em " + selectedTarget.channelName + "..."
                     }
-                    rows={1}
-                    maxLength={maxLength}
                     spellCheck={false}
+                    onInput={() => {
+                      upgradeTypedComposerEmote();
+                      syncComposerText();
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        event.currentTarget.closest("form")?.requestSubmit();
+                      } else if (event.key === "Enter" && event.shiftKey) {
+                        event.preventDefault();
+                        insertPlainComposerText("\n");
+                      }
+                    }}
+                    onPaste={(event) => {
+                      event.preventDefault();
+                      insertPlainComposerText(
+                        event.clipboardData.getData("text/plain"),
+                      );
+                    }}
                   />
                   <span className="counter">{[...text].length}/{maxLength}</span>
                 </div>
