@@ -16,7 +16,11 @@ export async function GET() {
     const s = await readPlatformSession(platform);
     const moderationScopes =
       platform === "twitch"
-        ? ["moderator:manage:banned_users", "moderator:manage:chat_messages"]
+        ? [
+            "user:read:moderated_channels",
+            "moderator:manage:banned_users",
+            "moderator:manage:chat_messages",
+          ]
         : platform === "kick"
           ? ["moderation:ban", "moderation:chat_message:manage"]
           : ["https://www.googleapis.com/auth/youtube.force-ssl"];
@@ -28,6 +32,7 @@ export async function GET() {
     return [platform, s ? {
       connected: true,
       configured: configured(platform),
+      userId: s.userId,
       userName: s.userName,
       avatar: s.avatar,
       moderationReady: missingModerationScopes.length === 0,
