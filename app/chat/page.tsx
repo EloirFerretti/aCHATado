@@ -440,7 +440,6 @@ export default function Home() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [demo, setDemo] = useState(false);
-  const [dbProvider, setDbProvider] = useState("demo");
   const [channelInputs, setChannelInputs] = useState<ChannelInputs>(emptyInputs);
   const [channels, setChannels] = useState<ChannelMap>({});
   const [channelErrors, setChannelErrors] = useState<ChannelErrors>({});
@@ -500,7 +499,6 @@ export default function Home() {
     if (!res.ok) return;
     const json = await res.json();
     setDemo(!json.dbConfigured);
-    setDbProvider(json.dbProvider || "demo");
     const incoming: Message[] = json.messages || [];
     if (!incoming.length) return;
     setMessages((prev) => {
@@ -2482,15 +2480,6 @@ export default function Home() {
                     </div>
                   ))}
         
-                  <div className="dbStatus">
-                    Banco: <b>
-                      {dbProvider === "render-postgres"
-                        ? "Render PostgreSQL"
-                        : dbProvider === "supabase"
-                          ? "Supabase"
-                          : "demonstração"}
-                    </b>
-                  </div>
       </>
     );
   }
