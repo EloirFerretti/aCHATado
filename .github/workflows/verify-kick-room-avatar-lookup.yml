@@ -98,6 +98,29 @@ jobs:
                 payload = await response.json();
               } catch {}
 
+              let fallbackV1 = null;
+              let fallbackV2 = null;
+              if (!(
+                payload?.profile_pic ||
+                payload?.profile_picture ||
+                payload?.profilepic
+              )) {
+                try {
+                  const r1 = await fetch(
+                    `https://kick.com/api/v1/users/${encodeURIComponent(String(username).toLowerCase())}`,
+                    { cache: "no-store", credentials: "omit", headers: { Accept: "application/json" } },
+                  );
+                  fallbackV1 = { status: r1.status, payload: r1.ok ? await r1.json() : null };
+                } catch {}
+                try {
+                  const r2 = await fetch(
+                    `https://kick.com/api/v2/channels/${encodeURIComponent(String(username).toLowerCase())}`,
+                    { cache: "no-store", credentials: "omit", headers: { Accept: "application/json" } },
+                  );
+                  fallbackV2 = { status: r2.status, payload: r2.ok ? await r2.json() : null };
+                } catch {}
+              }
+
               probes.push({
                 username,
                 status: response.status,
@@ -106,6 +129,9 @@ jobs:
                   payload?.profile_picture ||
                   payload?.profilepic ||
                   null,
+                payload: payload?.profile_pic ? null : payload,
+                fallbackV1,
+                fallbackV2,
               });
             }
 
