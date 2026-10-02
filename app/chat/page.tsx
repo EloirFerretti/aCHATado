@@ -456,6 +456,13 @@ export default function Home() {
   const [popupMode, setPopupMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState<UserProfileTarget | null>(null);
+  const [emotePreview, setEmotePreview] = useState<{
+    code: string;
+    url: string;
+    provider: string;
+    left: number;
+    top: number;
+  } | null>(null);
   const [resolvingPlatform, setResolvingPlatform] = useState<Platform | null>(null);
   const [ready, setReady] = useState(false);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
@@ -2020,6 +2027,128 @@ export default function Home() {
     syncComposerText();
   }
 
+  function addChatEmoteToComposer(emote: {
+    id?: string;
+    code: string;
+    url: string;
+    provider: Exclude<PickerProvider, "all">;
+    animated?: boolean;
+    zeroWidth?: boolean;
+    native?: boolean;
+  }) {
+    setPickerOpen(false);
+    insertPickerEmote({
+      id: emote.id,
+      code: emote.code,
+      name: emote.code,
+      url: emote.url,
+      provider: emote.provider,
+      category:
+        emote.provider === "bttv" ||
+        emote.provider === "ffz" ||
+        emote.provider === "7tv"
+          ? "thirdparty"
+          : "official",
+      scope: "channel",
+      animated: emote.animated,
+      zeroWidth: emote.zeroWidth,
+      native: emote.native,
+      locked: false,
+    });
+  }
+
+  function showChatEmotePreview(
+    code: string,
+    url: string,
+    provider: string,
+    element: HTMLElement,
+  ) {
+    const rect = element.getBoundingClientRect();
+    const width = 142;
+    const left = Math.max(
+      8,
+      Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2),
+    );
+    const top = Math.max(8, rect.top - 112);
+
+    setEmotePreview({
+      code,
+      url,
+      provider,
+      left,
+      top,
+    });
+  }
+
+  function interactiveChatEmote(options: {
+    key: string;
+    id?: string;
+    code: string;
+    url: string;
+    provider: Exclude<PickerProvider, "all">;
+    className?: string;
+    animated?: boolean;
+    zeroWidth?: boolean;
+    native?: boolean;
+  }) {
+    const providerLabel =
+      options.provider === "7tv"
+        ? "7TV"
+        : options.provider === "bttv"
+          ? "BTTV"
+          : options.provider === "ffz"
+            ? "FFZ"
+            : labels[options.provider as Platform] || options.provider.toUpperCase();
+
+    return (
+      <span
+        className="interactiveChatEmote"
+        key={options.key}
+        role="button"
+        tabIndex={0}
+        aria-label={`Adicionar emote ${options.code} à mensagem`}
+        onClick={(event) => {
+          event.stopPropagation();
+          setEmotePreview(null);
+          addChatEmoteToComposer(options);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          event.stopPropagation();
+          setEmotePreview(null);
+          addChatEmoteToComposer(options);
+        }}
+        onMouseEnter={(event) =>
+          showChatEmotePreview(
+            options.code,
+            options.url,
+            providerLabel,
+            event.currentTarget,
+          )
+        }
+        onMouseLeave={() => setEmotePreview(null)}
+        onFocus={(event) =>
+          showChatEmotePreview(
+            options.code,
+            options.url,
+            providerLabel,
+            event.currentTarget,
+          )
+        }
+        onBlur={() => setEmotePreview(null)}
+      >
+        <img
+          className={`chatEmote ${options.className || ""} ${options.zeroWidth ? "zeroWidth" : ""}`.trim()}
+          src={options.url}
+          alt={options.code}
+          draggable={false}
+          loading="lazy"
+        />
+      </span>
+    );
+  }
+
   useEffect(() => {
     const root = composerEditorRef.current;
     if (!root) return;
@@ -2046,16 +2175,14 @@ export default function Home() {
       const emote = thirdPartyEmotes[part];
       if (!emote) return part;
 
-      return (
-        <img
-          className={`chatEmote ${emote.zeroWidth ? "zeroWidth" : ""}`}
-          src={emote.url}
-          alt={part}
-          title={`${part} · ${emote.provider.toUpperCase()}`}
-          loading="lazy"
-          key={`${messageId}-${prefix}-third-${index}`}
-        />
-      );
+      return interactiveChatEmote({
+        key: `${messageId}-${prefix}-third-${index}`,
+        code: part,
+        url: emote.url,
+        provider: emote.provider,
+        animated: emote.animated,
+        zeroWidth: emote.zeroWidth,
+      });
     });
   }
 
@@ -2071,29 +2198,28 @@ export default function Home() {
         const formats = Array.isArray(fragment.emote.format) ? fragment.emote.format : [];
         const format = formats.includes("animated") ? "animated" : "static";
         const url = `https://static-cdn.jtvnw.net/emoticons/v2/${id}/${format}/dark/2.0`;
-        return (
-          <img
-            className="chatEmote nativeEmote twitchNativeEmote"
-            src={url}
-            alt={fragment.text || "Twitch emote"}
-            title={fragment.text || "Twitch emote"}
-            loading="lazy"
-            key={`${message.platform_message_id}-tw-native-${index}`}
-          />
-        );
+        return interactiveChatEmote({
+          key: `${message.platform_message_id}-tw-native-${index}`,
+          id: String(fragment.emote.id),
+          code: String(fragment.text || "Twitch emote"),
+          url,
+          provider: "twitch",
+          animated: format === "animated",
+          native: true,
+          className: "nativeEmote twitchNativeEmote",
+        });
       }
 
       if (fragment?.type === "gif" && fragment?.gif?.url) {
-        return (
-          <img
-            className="chatEmote nativeEmote twitchNativeEmote"
-            src={String(fragment.gif.url)}
-            alt={fragment.text || "Twitch GIF"}
-            title={fragment.text || "Twitch GIF"}
-            loading="lazy"
-            key={`${message.platform_message_id}-tw-gif-${index}`}
-          />
-        );
+        return interactiveChatEmote({
+          key: `${message.platform_message_id}-tw-gif-${index}`,
+          code: String(fragment.text || "Twitch GIF"),
+          url: String(fragment.gif.url),
+          provider: "twitch",
+          animated: true,
+          native: true,
+          className: "nativeEmote twitchNativeEmote",
+        });
       }
 
       return (
@@ -2125,15 +2251,17 @@ export default function Home() {
 
       const emoteId = encodeURIComponent(match[1]);
       const emoteName = match[2];
+      const kickEmoteUrl = `https://files.kick.com/emotes/${emoteId}/fullsize`;
       parts.push(
-        <img
-          className="chatEmote nativeEmote kickNativeEmote"
-          src={`https://files.kick.com/emotes/${emoteId}/fullsize`}
-          alt={emoteName}
-          title={emoteName}
-          loading="lazy"
-          key={`${message.platform_message_id}-kick-native-${index++}`}
-        />,
+        interactiveChatEmote({
+          key: `${message.platform_message_id}-kick-native-${index++}`,
+          id: match[1],
+          code: emoteName,
+          url: kickEmoteUrl,
+          provider: "kick",
+          native: true,
+          className: "nativeEmote kickNativeEmote",
+        }),
       );
       cursor = regex.lastIndex;
     }
@@ -2432,16 +2560,14 @@ export default function Home() {
       const emote = youtubeEmotes[part];
       if (!emote) return part;
 
-      return (
-        <img
-          className="chatEmote nativeEmote youtubeNativeEmote"
-          src={emote.url}
-          alt={emote.shortcut || part}
-          title={emote.shortcut || part}
-          loading="lazy"
-          key={`${message.platform_message_id}-yt-native-${index}`}
-        />
-      );
+      return interactiveChatEmote({
+        key: `${message.platform_message_id}-yt-native-${index}`,
+        code: emote.shortcut || part,
+        url: emote.url,
+        provider: "youtube",
+        native: true,
+        className: "nativeEmote youtubeNativeEmote",
+      });
     });
   }
 
@@ -3153,6 +3279,19 @@ export default function Home() {
               )}
             </div>
           </section>
+        </div>
+      )}
+
+      {emotePreview && (
+        <div
+          className="chatEmotePreview"
+          style={{ left: emotePreview.left, top: emotePreview.top }}
+          role="tooltip"
+          aria-hidden="true"
+        >
+          <img src={emotePreview.url} alt="" draggable={false} />
+          <strong>{emotePreview.code}</strong>
+          <span>{emotePreview.provider}</span>
         </div>
       )}
 
