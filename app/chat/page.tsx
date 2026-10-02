@@ -64,6 +64,8 @@ type UserProfileTarget = {
   authorColor: string | null;
   profileUrl: string | null;
 };
+
+type ModerationAction = "ban" | "timeout" | "unban" | "delete_message";
 type ResolvedChannel = {
   platform: Platform;
   input: string;
@@ -76,7 +78,17 @@ type ResolvedChannel = {
   subscriptionReady?: boolean;
   note?: string;
 };
-type AuthInfo = Record<Platform, { connected: boolean; configured: boolean; userName?: string; avatar?: string }>;
+type AuthInfo = Record<
+  Platform,
+  {
+    connected: boolean;
+    configured: boolean;
+    userName?: string;
+    avatar?: string;
+    moderationReady?: boolean;
+    missingModerationScopes?: string[];
+  }
+>;
 type ChannelInputs = Record<Platform, string>;
 type ChannelMap = Partial<Record<Platform, ResolvedChannel>>;
 type ChannelErrors = Partial<Record<Platform, string>>;
@@ -462,6 +474,11 @@ export default function Home() {
     provider: string;
     left: number;
     top: number;
+  } | null>(null);
+  const [moderationBusy, setModerationBusy] = useState("");
+  const [moderationFeedback, setModerationFeedback] = useState<{
+    type: "success" | "error";
+    text: string;
   } | null>(null);
   const [resolvingPlatform, setResolvingPlatform] = useState<Platform | null>(null);
   const [ready, setReady] = useState(false);
@@ -909,6 +926,26 @@ export default function Home() {
         });
       } catch {
         // O reconciliador periódico recupera qualquer evento perdido.
+      }
+    });
+
+    events.addEventListener("chat-delete", (event) => {
+      try {
+        const deleted = JSON.parse((event as MessageEvent).data) as {
+          platform: Platform;
+          platform_message_id: string;
+        };
+        setMessages((previous) =>
+          previous.filter(
+            (message) =>
+              !(
+                message.platform === deleted.platform &&
+                message.platform_message_id === deleted.platform_message_id
+              ),
+          ),
+        );
+      } catch {
+        // Ignora eventos de exclusão inválidos.
       }
     });
 
@@ -1549,6 +1586,7 @@ export default function Home() {
   const activeChannelCount = platforms.filter((p) => channels[p]?.channelId).length;
 
   function openUserProfile(message: Message) {
+    setModerationFeedback(null);
     setProfileOpen({
       platform: message.platform,
       authorId: message.author_id ? String(message.author_id) : null,
@@ -1590,6 +1628,267 @@ export default function Home() {
     });
   }
 
+  function youtubeBanStorageKey(channelId: string, userId: string) {
+    return `achatado_youtube_ban:${channelId}:${userId}`;
+  }
+
+  async function requestModeration(options: {
+    platform: Platform;
+    action: ModerationAction;
+    userId?: string | null;
+    messageId?: string;
+    durationSeconds?: number;
+    reason?: string;
+  }) {
+    const channel = channels[options.platform];
+    if (!channel?.channelId) {
+      throw new Error(`Canal da ${labels[options.platform]} não identificado.`);
+    }
+    if (!auth[options.platform]?.connected) {
+      throw new Error(`Conecte sua conta da ${labels[options.platform]} antes de moderar.`);
+    }
+
+    const userId = String(options.userId || "").trim();
+    const busyKey = `${options.platform}:${options.action}:${userId || options.messageId || ""}`;
+    setModerationBusy(busyKey);
+
+    try {
+      const storageKey =
+        options.platform === "youtube" && userId
+          ? youtubeBanStorageKey(channel.channelId, userId)
+          : "";
+      const storedBanId =
+        storageKey && options.action === "unban"
+          ? localStorage.getItem(storageKey) || ""
+          : "";
+
+      const response = await fetch("/api/moderation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: options.platform,
+          action: options.action,
+          channelId: channel.channelId,
+          liveChatId: channel.liveChatId || undefined,
+          userId: userId || undefined,
+          messageId: options.messageId || undefined,
+          durationSeconds: options.durationSeconds || undefined,
+          reason: options.reason || undefined,
+          banId: storedBanId || undefined,
+        }),
+      });
+
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          json.error ||
+            (response.status === 403
+              ? `Sua conta não tem permissão para moderar este canal da ${labels[options.platform]}.`
+              : "Falha ao executar moderação."),
+        );
+      }
+
+      if (storageKey && json.banId) {
+        localStorage.setItem(storageKey, String(json.banId));
+      } else if (storageKey && options.action === "unban") {
+        localStorage.removeItem(storageKey);
+      }
+
+      return json;
+    } finally {
+      setModerationBusy("");
+    }
+  }
+
+  async function moderateProfile(action: "ban" | "timeout" | "unban") {
+    if (!profileOpen) return;
+    if (!profileOpen.authorId) {
+      setModerationFeedback({
+        type: "error",
+        text: "Não foi possível identificar o ID deste usuário.",
+      });
+      return;
+    }
+
+    let durationSeconds: number | undefined;
+    let reason = "";
+
+    if (action === "ban") {
+      if (!window.confirm(`Banir ${profileOpen.authorName} permanentemente da ${labels[profileOpen.platform]}?`)) {
+        return;
+      }
+      reason = window.prompt("Motivo do ban (opcional):", "")?.trim() || "";
+    } else if (action === "timeout") {
+      const duration = window.prompt(
+        `Timeout de ${profileOpen.authorName}: quantos minutos?`,
+        "10",
+      );
+      if (duration === null) return;
+      const minutes = Number(duration.replace(",", "."));
+      if (!Number.isFinite(minutes) || minutes <= 0) {
+        setModerationFeedback({
+          type: "error",
+          text: "Informe uma duração válida em minutos.",
+        });
+        return;
+      }
+      durationSeconds = Math.round(minutes * 60);
+      reason = window.prompt("Motivo do timeout (opcional):", "")?.trim() || "";
+    } else if (
+      !window.confirm(
+        `Remover ban/timeout de ${profileOpen.authorName} na ${labels[profileOpen.platform]}?`,
+      )
+    ) {
+      return;
+    }
+
+    setModerationFeedback(null);
+    try {
+      await requestModeration({
+        platform: profileOpen.platform,
+        action,
+        userId: profileOpen.authorId,
+        durationSeconds,
+        reason,
+      });
+      setModerationFeedback({
+        type: "success",
+        text:
+          action === "ban"
+            ? "Usuário banido com sucesso."
+            : action === "timeout"
+              ? "Timeout aplicado com sucesso."
+              : "Ban/timeout removido com sucesso.",
+      });
+    } catch (moderationError) {
+      setModerationFeedback({
+        type: "error",
+        text:
+          moderationError instanceof Error
+            ? moderationError.message
+            : "Falha ao executar moderação.",
+      });
+    }
+  }
+
+  async function deleteChatMessage(message: Message) {
+    if (
+      !window.confirm(
+        `Apagar esta mensagem de ${message.author_name} na ${labels[message.platform]}?`,
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+    try {
+      await requestModeration({
+        platform: message.platform,
+        action: "delete_message",
+        messageId: message.platform_message_id,
+      });
+      setMessages((previous) =>
+        previous.filter(
+          (candidate) =>
+            !(
+              candidate.platform === message.platform &&
+              candidate.platform_message_id === message.platform_message_id
+            ),
+        ),
+      );
+    } catch (moderationError) {
+      setError(
+        moderationError instanceof Error
+          ? moderationError.message
+          : "Falha ao apagar mensagem.",
+      );
+    }
+  }
+
+  function findLoadedUser(platform: Platform, username: string) {
+    const normalized = username.replace(/^@/, "").trim().toLocaleLowerCase();
+    return [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.platform === platform &&
+          message.author_name.replace(/^@/, "").trim().toLocaleLowerCase() ===
+            normalized &&
+          Boolean(message.author_id),
+      );
+  }
+
+  async function handleModerationCommand(value: string) {
+    const command = value.trim();
+    let match = command.match(/^\/ban\s+@?(\S+)(?:\s+(.+))?$/i);
+    let action: "ban" | "timeout" | "unban" | null = null;
+    let username = "";
+    let reason = "";
+    let durationSeconds: number | undefined;
+
+    if (match) {
+      action = "ban";
+      username = match[1];
+      reason = match[2]?.trim() || "";
+    } else {
+      match = command.match(/^\/timeout\s+@?(\S+)\s+(\d+(?:[.,]\d+)?)(?:\s+(.+))?$/i);
+      if (match) {
+        action = "timeout";
+        username = match[1];
+        durationSeconds = Math.round(Number(match[2].replace(",", ".")) * 60);
+        reason = match[3]?.trim() || "";
+      } else {
+        match = command.match(/^\/unban\s+@?(\S+)$/i);
+        if (match) {
+          action = "unban";
+          username = match[1];
+        }
+      }
+    }
+
+    if (!action) return false;
+
+    const user = findLoadedUser(selected, username);
+    if (!user?.author_id) {
+      setError(
+        `Não encontrei @${username.replace(/^@/, "")} entre os usuários carregados da ${labels[selected]}.`,
+      );
+      return true;
+    }
+
+    if (action === "timeout" && (!durationSeconds || durationSeconds < 1)) {
+      setError("Use /timeout usuário minutos [motivo].");
+      return true;
+    }
+
+    try {
+      await requestModeration({
+        platform: selected,
+        action,
+        userId: user.author_id,
+        durationSeconds,
+        reason,
+      });
+      setText("");
+      composerEditorRef.current?.replaceChildren();
+      setReplyingTo(null);
+      setError(
+        action === "ban"
+          ? `${user.author_name} foi banido.`
+          : action === "timeout"
+            ? `Timeout aplicado em ${user.author_name}.`
+            : `Ban/timeout removido de ${user.author_name}.`,
+      );
+    } catch (moderationError) {
+      setError(
+        moderationError instanceof Error
+          ? moderationError.message
+          : "Falha ao executar comando de moderação.",
+      );
+    }
+    return true;
+  }
+
   async function send(e: FormEvent) {
     e.preventDefault();
     setError("");
@@ -1608,6 +1907,8 @@ export default function Home() {
       window.location.href = `/api/auth/${selected}/start`;
       return;
     }
+
+    if (await handleModerationCommand(text)) return;
 
     setSending(true);
     try {
@@ -2956,6 +3257,19 @@ export default function Home() {
                         ↩ <span>Responder</span>
                       </button>
                     )}
+                    {auth[m.platform]?.connected &&
+                      auth[m.platform]?.moderationReady && (
+                        <button
+                          type="button"
+                          className="messageModerationAction"
+                          onClick={() => deleteChatMessage(m)}
+                          disabled={Boolean(moderationBusy)}
+                          title={`Apagar mensagem de ${m.author_name}`}
+                          aria-label={`Apagar mensagem de ${m.author_name}`}
+                        >
+                          🗑 <span>Apagar</span>
+                        </button>
+                      )}
                   </div>
                   <p className="chatText">{renderMessageText(m)}</p>
                 </div>
@@ -3273,6 +3587,58 @@ export default function Home() {
                     Link do perfil indisponível
                   </span>
                 )}
+                <div className="userProfileModeration">
+                  {!auth[profileOpen.platform]?.connected ? (
+                    <a
+                      className="moderationReconnect"
+                      href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
+                    >
+                      Conectar {labels[profileOpen.platform]} para moderar
+                    </a>
+                  ) : !auth[profileOpen.platform]?.moderationReady ? (
+                    <a
+                      className="moderationReconnect"
+                      href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
+                    >
+                      Reconectar para ativar moderação
+                    </a>
+                  ) : (
+                    <div className="moderationActionRow">
+                      <button
+                        type="button"
+                        className="moderationButton timeout"
+                        onClick={() => moderateProfile("timeout")}
+                        disabled={Boolean(moderationBusy)}
+                      >
+                        Timeout
+                      </button>
+                      <button
+                        type="button"
+                        className="moderationButton ban"
+                        onClick={() => moderateProfile("ban")}
+                        disabled={Boolean(moderationBusy)}
+                      >
+                        Banir
+                      </button>
+                      <button
+                        type="button"
+                        className="moderationButton unban"
+                        onClick={() => moderateProfile("unban")}
+                        disabled={Boolean(moderationBusy)}
+                      >
+                        Desbanir
+                      </button>
+                    </div>
+                  )}
+                  {moderationFeedback && (
+                    <div
+                      className={`moderationFeedback ${moderationFeedback.type}`}
+                      role="status"
+                    >
+                      {moderationFeedback.text}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
