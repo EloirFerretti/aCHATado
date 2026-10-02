@@ -693,6 +693,9 @@ a { color: inherit; text-decoration: none; }
   color:inherit !important;
   font-size:10px !important;
 }
+.mobileSettingsButton {
+  display:none;
+}
 
 .popupMode {
   width:100vw;
@@ -812,6 +815,12 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width:800px) {
+  .mobileSettingsButton {
+    display:inline-flex;
+  }
+  .popupLaunchButton {
+    display:none;
+  }
   .chatFilterBar {
     flex:1;
     overflow-x:auto;
