@@ -88,8 +88,8 @@ jobs:
             "https://kick.com/xqc"
           ]) {
             try {
-              await page.goto(url, { waitUntil: "networkidle", timeout: 90000 });
-              await page.waitForTimeout(12000);
+              await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+              await page.waitForTimeout(15000);
               const html = await page.content();
               await fs.writeFile(
                 "/tmp/" + (url.endsWith("xqc") ? "xqc.html" : "home.html"),
