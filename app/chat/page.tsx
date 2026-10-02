@@ -11,6 +11,12 @@ type MessageBadge = {
   type?: string;
   text?: string;
   count?: number;
+  name?: string;
+  image_url?: string;
+  metadata?: {
+    level?: number;
+    [key: string]: unknown;
+  };
 };
 
 type TwitchBadgeCatalogEntry = {
@@ -1330,13 +1336,84 @@ export default function Home() {
     return glyphs[normalized] || normalized.slice(0, 2).toUpperCase() || "?";
   }
 
+  function kickLevelBadgeNumber(badge: MessageBadge) {
+    const badgeName = String(badge.name || badge.type || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "");
+    const fromMetadata = Number(badge.metadata?.level);
+    const fromCount = Number(badge.count);
+    const fromText = String(badge.text || "").match(/(?:level|nível)\s*(\d{1,3})/i);
+
+    const candidate =
+      Number.isFinite(fromMetadata) && fromMetadata > 0
+        ? fromMetadata
+        : badgeName === "level" && Number.isFinite(fromCount) && fromCount > 0
+          ? fromCount
+          : fromText
+            ? Number(fromText[1])
+            : NaN;
+
+    if (!Number.isInteger(candidate) || candidate < 1 || candidate > 99) {
+      return null;
+    }
+    return candidate;
+  }
+
+  function kickLevelBadgeAsset(level: number | null) {
+    return level ? `/badges/kick/level-${level}.svg` : null;
+  }
+
   function kickBadgesForMessage(message: Message) {
     const result: MessageBadge[] = [...(message.badges || [])];
     const seen = new Set(
-      result.map((badge) => String(badge.type || "").toLowerCase()).filter(Boolean),
+      result
+        .map((badge) =>
+          String(badge.name || badge.type || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, ""),
+        )
+        .filter(Boolean),
     );
 
     const raw = message.raw;
+    const badgesV2 = Array.isArray(raw?.sender?.identity?.badges_v2)
+      ? raw.sender.identity.badges_v2
+      : [];
+
+    for (const badge of badgesV2) {
+      const name = String(badge?.name || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "");
+      if (!name || seen.has(name)) continue;
+
+      if (name === "level") {
+        const level = Number(badge?.metadata?.level);
+        if (Number.isInteger(level) && level >= 1 && level <= 99) {
+          result.push({
+            type: "level",
+            name: "level",
+            text: `Level ${level}`,
+            count: level,
+            metadata: badge?.metadata || { level },
+            image_url:
+              typeof badge?.image_url === "string" ? badge.image_url : undefined,
+          });
+          seen.add("level");
+        }
+        continue;
+      }
+
+      result.push({
+        type: name,
+        name,
+        text: String(badge?.text || badge?.name || name),
+        metadata: badge?.metadata,
+        image_url:
+          typeof badge?.image_url === "string" ? badge.image_url : undefined,
+      });
+      seen.add(name);
+    }
+
     const senderId = raw?.sender?.user_id;
     const broadcasterId = raw?.broadcaster?.user_id;
 
@@ -1407,12 +1484,15 @@ export default function Home() {
                 ? badge.count
                 : null;
 
+            const level = kickLevelBadgeNumber(badge);
             const subscriberBadge =
               type === "subscriber"
                 ? kickSubscriberBadgeForCount(count)
                 : null;
             const asset =
-              subscriberBadge?.imageUrl || kickBadgeAsset(type, count);
+              subscriberBadge?.imageUrl ||
+              kickLevelBadgeAsset(level) ||
+              kickBadgeAsset(type, count);
 
             if (asset) {
               return (
@@ -1426,14 +1506,18 @@ export default function Home() {
                       ? `${label} · badge de ${subscriberBadge.months} ${subscriberBadge.months === 1 ? "mês" : "meses"}`
                       : type === "sub_gifter" || type === "subgifter" || type === "sub-gifter"
                         ? `Sub Gifter · ${kickSubGifterBadgeTier(count)}+ sub gifts`
-                        : label
+                        : level
+                          ? `Nível ${level}`
+                          : label
                   }
                   aria-label={
                     subscriberBadge
                       ? `${label}, badge de ${subscriberBadge.months} ${subscriberBadge.months === 1 ? "mês" : "meses"}`
                       : type === "sub_gifter" || type === "subgifter" || type === "sub-gifter"
                         ? `Sub Gifter, ${kickSubGifterBadgeTier(count)} ou mais sub gifts`
-                        : label
+                        : level
+                          ? `Badge de nível ${level} da Kick`
+                          : label
                   }
                   loading="eager"
                 />
