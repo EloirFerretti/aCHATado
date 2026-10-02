@@ -149,10 +149,44 @@ export async function POST(req: NextRequest) {
     try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
     if (!upstream.ok) {
       const errorMessage = data?.message || data?.error?.message || `A plataforma respondeu ${upstream.status}.`;
+      if (platform === "youtube") {
+        console.warn("[youtube-send] rejected", {
+          status: upstream.status,
+          reason: data?.error?.errors?.[0]?.reason || data?.error?.status || "unknown",
+        });
+      }
       return NextResponse.json(
         { error: errorMessage, details: data },
         { status: upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502 },
       );
+    }
+
+    if (platform === "youtube") {
+      const youtubeMessageId =
+        typeof data?.id === "string" && data.id.trim() ? data.id.trim() : "";
+
+      // A documentação do liveChatMessages.insert define que uma chamada
+      // bem-sucedida devolve um recurso liveChatMessage, cujo id identifica a
+      // mensagem criada. Não declaramos sucesso ao navegador sem essa prova.
+      if (!youtubeMessageId) {
+        console.error("[youtube-send] invalid success response", {
+          status: upstream.status,
+          liveChatId: liveChatId.slice(0, 12),
+        });
+        return NextResponse.json(
+          {
+            error:
+              "O YouTube respondeu sem confirmar o ID da mensagem. O envio não será marcado como concluído.",
+          },
+          { status: 502 },
+        );
+      }
+
+      console.info("[youtube-send] success", {
+        messageId: youtubeMessageId,
+        liveChatId: liveChatId.slice(0, 12),
+        videoId: youtubeVideoId,
+      });
     }
 
     const sendResult = data?.data?.[0] ?? data?.data;
