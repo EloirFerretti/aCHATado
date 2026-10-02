@@ -1,0 +1,122 @@
+name: Verify Kick room avatar lookup
+
+on:
+  push:
+    branches:
+      - verify-kick-room-avatar-lookup
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          npm install
+          npm run build
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Verify room-scoped avatar lookup
+        run: |
+          cat > verify-room-avatar.mjs <<'EOF'
+          import { chromium } from "playwright";
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+          const page = await context.newPage();
+
+          await page.goto("https://achatado.onrender.com/chat", {
+            waitUntil: "domcontentloaded",
+            timeout: 90000,
+          });
+
+          const result = await page.evaluate(async () => {
+            const channelResponse = await fetch("https://kick.com/api/v1/channels/xqc", {
+              cache: "no-store",
+              credentials: "omit",
+              headers: { Accept: "application/json" },
+            });
+            const channel = await channelResponse.json();
+            const chatroomId = channel?.chatroom?.id;
+            if (!chatroomId) throw new Error("No chatroom id");
+
+            const historyResponse = await fetch(
+              `https://kick.com/api/v2/channels/${chatroomId}/messages`,
+              {
+                cache: "no-store",
+                credentials: "omit",
+                headers: { Accept: "application/json" },
+              },
+            );
+            const history = await historyResponse.json();
+            const messages = Array.isArray(history) ? history : history?.data || [];
+
+            const missing = messages
+              .filter((message) => {
+                const sender = message?.sender || {};
+                return !(
+                  sender.profile_picture ||
+                  sender.profile_pic ||
+                  sender.profile_image ||
+                  sender.avatar
+                );
+              })
+              .slice(0, 12);
+
+            const probes = [];
+            for (const message of missing) {
+              const username = message?.sender?.username || message?.sender?.slug;
+              if (!username) continue;
+
+              const response = await fetch(
+                `https://kick.com/api/v2/channels/xqc/users/${encodeURIComponent(
+                  String(username).toLowerCase(),
+                )}`,
+                {
+                  cache: "no-store",
+                  credentials: "omit",
+                  headers: { Accept: "application/json" },
+                },
+              );
+
+              let payload = null;
+              try {
+                payload = await response.json();
+              } catch {}
+
+              probes.push({
+                username,
+                status: response.status,
+                profile_pic:
+                  payload?.profile_pic ||
+                  payload?.profile_picture ||
+                  payload?.profilepic ||
+                  null,
+              });
+            }
+
+            return {
+              messageCount: messages.length,
+              missingDirectCount: missing.length,
+              probes,
+              recoveredCount: probes.filter((probe) => Boolean(probe.profile_pic)).length,
+            };
+          });
+
+          console.log("ROOM_AVATAR_RESULT=" + JSON.stringify(result, null, 2));
+
+          if (!result.messageCount) throw new Error("No Kick history messages");
+          if (result.missingDirectCount && !result.recoveredCount) {
+            throw new Error("Room-scoped lookup did not recover any missing avatars");
+          }
+
+          await browser.close();
+          EOF
+
+          node verify-room-avatar.mjs
