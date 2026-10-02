@@ -1,0 +1,187 @@
+name: Verify Kick native emotes UI
+
+on:
+  push:
+    branches:
+      - verify-kick-native-emotes
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Verify Kick native emote picker
+        env:
+          TARGET_COMMIT: 0d975fc84265f715e833774785db06433c30a44b
+        run: |
+          cat > verify-kick-emotes.mjs <<'EOF'
+          import { chromium } from "playwright";
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            viewport: { width: 1440, height: 1000 },
+          });
+          const page = await context.newPage();
+
+          await page.route("**/api/auth/status", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                twitch: { connected: false, configured: true },
+                kick: { connected: true, configured: true, userName: "Kick test" },
+                youtube: { connected: false, configured: true },
+              }),
+            });
+          });
+
+          const target = process.env.TARGET_COMMIT;
+          let deployed = false;
+          for (let attempt = 1; attempt <= 30; attempt++) {
+            await page.goto("https://achatado.onrender.com/chat", {
+              waitUntil: "domcontentloaded",
+              timeout: 90000,
+            });
+
+            const health = await page.evaluate(async () => {
+              try {
+                const response = await fetch("/health?verify-kick-emotes=1", {
+                  cache: "no-store",
+                });
+                return await response.json();
+              } catch {
+                return null;
+              }
+            });
+
+            console.log("DEPLOY_ATTEMPT=" + attempt, JSON.stringify(health));
+            if (health?.version === target || health?.version === "unknown") {
+              deployed = true;
+              break;
+            }
+            await page.waitForTimeout(5000);
+          }
+
+          if (!deployed) {
+            throw new Error("Production did not publish the target commit during verification");
+          }
+
+          const direct = await page.evaluate(async () => {
+            try {
+              const response = await fetch("https://kick.com/emotes/xqc", {
+                cache: "no-store",
+                credentials: "omit",
+                headers: { Accept: "application/json" },
+              });
+              const payload = await response.json();
+              return {
+                status: response.status,
+                ok: response.ok,
+                isArray: Array.isArray(payload),
+                sets: Array.isArray(payload)
+                  ? payload.map((set) => ({
+                      slug: set?.slug ?? null,
+                      name: set?.name ?? null,
+                      count: Array.isArray(set?.emotes) ? set.emotes.length : 0,
+                      sample: Array.isArray(set?.emotes)
+                        ? set.emotes.slice(0, 3).map((e) => ({
+                            id: e?.id,
+                            name: e?.name,
+                            subscribers_only: e?.subscribers_only,
+                          }))
+                        : [],
+                    }))
+                  : [],
+              };
+            } catch (error) {
+              return { error: String(error) };
+            }
+          });
+          console.log("KICK_DIRECT_EMOTES=" + JSON.stringify(direct, null, 2));
+
+          if (!direct.ok || !direct.isArray) {
+            throw new Error("Kick emote endpoint is not readable from the aCHATado browser origin");
+          }
+
+          const resolved = await page.evaluate(async () => {
+            const response = await fetch("/api/channels/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channels: { twitch: "", kick: "xqc", youtube: "" },
+              }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json?.channels?.kick?.channelId) {
+              throw new Error("Kick channel resolution failed: " + JSON.stringify(json));
+            }
+            localStorage.setItem(
+              "achatado_channel_inputs",
+              JSON.stringify({ twitch: "", kick: "xqc", youtube: "" }),
+            );
+            localStorage.setItem(
+              "achatado_channels",
+              JSON.stringify(json.channels),
+            );
+            return json.channels.kick;
+          });
+          console.log("RESOLVED_KICK=" + JSON.stringify(resolved));
+
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 90000 });
+          await page.locator(".platformSwitch button.kick").click();
+          await page.locator(".emotePickerButton").click();
+
+          await page.waitForFunction(
+            () =>
+              document.querySelectorAll(
+                '.emotePickerPanel .emotePickerItem img[src*="files.kick.com/emotes/"]',
+              ).length > 0,
+            null,
+            { timeout: 30000 },
+          );
+
+          const result = await page.evaluate(() => {
+            const kickImages = [
+              ...document.querySelectorAll(
+                '.emotePickerPanel .emotePickerItem img[src*="files.kick.com/emotes/"]',
+              ),
+            ];
+            const providerTabs = [
+              ...document.querySelectorAll(".emoteProviderTabs button"),
+            ].map((el) => el.textContent?.trim());
+            const groups = [
+              ...document.querySelectorAll(".emotePickerGroupTitle"),
+            ].map((el) => el.textContent?.trim());
+
+            return {
+              kickImageCount: kickImages.length,
+              providerTabs,
+              groups,
+              samples: kickImages.slice(0, 10).map((img) => ({
+                alt: img.getAttribute("alt"),
+                src: img.getAttribute("src"),
+              })),
+            };
+          });
+
+          console.log("KICK_PICKER_RESULT=" + JSON.stringify(result, null, 2));
+
+          if (!result.providerTabs.includes("Kick")) {
+            throw new Error("Kick provider tab was not rendered");
+          }
+          if (result.kickImageCount < 1) {
+            throw new Error("No native Kick emote was rendered in the picker");
+          }
+
+          await browser.close();
+          EOF
+
+          node verify-kick-emotes.mjs
