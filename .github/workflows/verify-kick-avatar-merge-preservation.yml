@@ -1,0 +1,197 @@
+name: Verify Kick avatar merge preservation
+
+on:
+  push:
+    branches:
+      - verify-kick-avatar-merge-preservation
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          npm install
+          npm run build
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Verify richer Kick message cannot erase avatar
+        run: |
+          cat > verify-avatar-merge.mjs <<'EOF'
+          import { chromium } from "playwright";
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+          const page = await context.newPage();
+
+          const avatar =
+            "https://files.kick.com/images/user/7404530/profile_image/conversion/104a9b9a-3882-49b1-aa55-22eae3dab24f-medium.webp";
+
+          await page.route("**/api/auth/status", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                twitch: { connected: false, configured: true },
+                kick: { connected: true, configured: true, userName: "Kick test" },
+                youtube: { connected: false, configured: true },
+              }),
+            });
+          });
+
+          await page.route("**/api/messages**", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                dbConfigured: true,
+                dbProvider: "test",
+                messages: [{
+                  id: 1,
+                  platform: "kick",
+                  platform_message_id: "same-message",
+                  channel_id: "123",
+                  author_id: "7404530",
+                  author_name: "Fossabot",
+                  author_avatar: avatar,
+                  author_color: "#53fc18",
+                  message: "teste",
+                  created_at: new Date().toISOString(),
+                  badges: [],
+                  raw: {
+                    sender: {
+                      id: 7404530,
+                      username: "Fossabot",
+                      slug: "fossabot",
+                      profile_picture: avatar,
+                      identity: { badges: [] }
+                    }
+                  }
+                }]
+              }),
+            });
+          });
+
+          await page.route("**/api/events", async (route) => {
+            await route.fulfill({
+              status: 200,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache"
+              },
+              body: ""
+            });
+          });
+
+          await page.route("https://kick.com/api/v1/channels/xqc", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({ chatroom: { id: 668 } }),
+            });
+          });
+
+          await page.route("https://kick.com/api/v2/channels/xqc", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({ chatroom: { id: 668 } }),
+            });
+          });
+
+          await page.route("https://kick.com/api/v2/channels/668/messages", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                data: {
+                  messages: [{
+                    id: "same-message",
+                    content: "teste",
+                    created_at: new Date().toISOString(),
+                    sender: {
+                      id: 7404530,
+                      username: "Fossabot",
+                      slug: "fossabot",
+                      identity: {
+                        badges: [],
+                        badges_v2: [{
+                          name: "level",
+                          image_url: "https://ext.cdn.kick.com/chat/badges/test.png",
+                          metadata: { level: 24 }
+                        }]
+                      }
+                    }
+                  }]
+                }
+              }),
+            });
+          });
+
+          await page.goto("https://achatado.onrender.com/chat", {
+            waitUntil: "domcontentloaded",
+            timeout: 90000,
+          });
+
+          await page.evaluate(() => {
+            localStorage.setItem(
+              "achatado_channels",
+              JSON.stringify({
+                kick: {
+                  platform: "kick",
+                  input: "xqc",
+                  channelId: "123",
+                  channelName: "xqc",
+                  live: true
+                }
+              }),
+            );
+            localStorage.setItem(
+              "achatado_channel_inputs",
+              JSON.stringify({ twitch: "", kick: "xqc", youtube: "" }),
+            );
+          });
+
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 90000 });
+
+          await page.waitForFunction(
+            () => document.querySelectorAll(".avatarRing.kick img").length > 0,
+            null,
+            { timeout: 15000 },
+          );
+
+          await page.waitForTimeout(2500);
+
+          const result = await page.evaluate(() => {
+            const img = document.querySelector(".avatarRing.kick img");
+            const level = document.querySelector('img[src*="/badges/kick/level-24.svg"]');
+            return {
+              avatarSrc: img?.getAttribute("src") || "",
+              avatarVisible: Boolean(img && !img.hidden),
+              levelBadgeVisible: Boolean(level),
+              fallbackText:
+                document.querySelector(".avatarRing.kick .avatarFallback")?.textContent?.trim() || "",
+            };
+          });
+
+          console.log("AVATAR_MERGE_RESULT=" + JSON.stringify(result, null, 2));
+
+          if (!result.avatarVisible || result.avatarSrc !== avatar) {
+            throw new Error("Badge-rich Kick enrichment erased the existing avatar");
+          }
+
+          if (!result.levelBadgeVisible) {
+            throw new Error("Kick badges_v2 enrichment was not applied");
+          }
+
+          await browser.close();
+          EOF
+
+          node verify-avatar-merge.mjs
