@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
     await upsertEnrichedMessages(messages);
 
     const levelBadges = messages.reduce(
-      (total, message) =>
+      (total: number, message: ChatMessage) =>
         total +
         message.badges.filter(
           (badge: any) => badgeType(badge?.name || badge?.type) === "level",
