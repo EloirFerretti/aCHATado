@@ -5,8 +5,12 @@ on:
     branches:
       - kick-level-badge-scrape
 
+permissions:
+  contents: write
+
 jobs:
   inspect:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -154,6 +158,55 @@ jobs:
           await browser.close();
           EOF
           node capture-kick-levels.mjs
+
+      - name: Generate complete official level badge catalog
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import xml.etree.ElementTree as ET
+
+          bundles = list(Path("kick-level-inspection/bundles").glob("*.js"))
+          assert bundles, "no matching Kick bundle captured"
+          source = "\n".join(path.read_text(encoding="utf-8") for path in bundles)
+
+          pattern = re.compile(
+              r'\\{name:"Level(\\d+)",viewBox:"([^"]+)",body:\\'((?:\\\\.|[^\\'])*)\\',category:"brand-unique",owner:"kick"\\}'
+          )
+          matches = pattern.findall(source)
+          assert len(matches) >= 99, f"expected at least 99 level SVG definitions, found {len(matches)}"
+
+          target = Path("public/badges/kick")
+          target.mkdir(parents=True, exist_ok=True)
+          levels = []
+
+          for level, view_box, body in matches:
+              number = int(level)
+              if number < 1 or number > 99:
+                  continue
+              body = body.replace("\\\\'", "'").replace("\\\\\\", "\\\\")
+              svg = (
+                  f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{view_box}">'
+                  f'<title>Level {number}</title>{body}</svg>\\n'
+              )
+              ET.fromstring(svg)
+              (target / f"level-{number}.svg").write_text(svg, encoding="utf-8")
+              levels.append(number)
+
+          levels = sorted(set(levels))
+          assert levels == list(range(1, 100)), f"incomplete level catalog: {levels}"
+          print("generated official Kick level badges:", len(levels), levels[0], levels[-1])
+          PY
+
+      - name: Commit official level badge SVGs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/badges/kick/level-*.svg
+          if ! git diff --cached --quiet; then
+            git commit -m "Add official Kick level badge SVGs"
+            git push
+          fi
 
       - name: Print findings
         run: |
