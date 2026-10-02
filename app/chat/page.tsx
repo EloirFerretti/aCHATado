@@ -92,7 +92,7 @@ type YouTubeEmote = {
   url: string;
   custom: boolean;
 };
-type PickerProvider = "all" | "twitch" | "youtube" | "bttv" | "ffz" | "7tv";
+type PickerProvider = "all" | "twitch" | "kick" | "youtube" | "bttv" | "ffz" | "7tv";
 type PickerCategory = "user" | "channel" | "official" | "thirdparty";
 type PickerEmote = {
   id?: string;
@@ -129,6 +129,7 @@ const emptyInputs: ChannelInputs = { twitch: "", kick: "", youtube: "" };
 const pickerProviderLabels: Record<PickerProvider, string> = {
   all: "Todos",
   twitch: "Twitch",
+  kick: "Kick",
   youtube: "YouTube",
   bttv: "BTTV",
   ffz: "FFZ",
@@ -140,6 +141,116 @@ const pickerCategoryLabels: Record<PickerCategory, string> = {
   official: "Oficiais",
   thirdparty: "Terceiros",
 };
+
+function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
+  const found = new Map<string, PickerEmote>();
+
+  const visit = (value: any, path: string[] = []) => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, path);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const rawId = value.id ?? value.emote_id ?? value.emoteId;
+    const rawName = value.name ?? value.code ?? value.slug;
+    const id = rawId == null ? "" : String(rawId).trim();
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+
+    const nestedEmoteCollection =
+      Array.isArray(value.emotes) ||
+      Array.isArray(value.items) ||
+      Array.isArray(value.children);
+
+    const context = [
+      ...path,
+      value.type,
+      value.category,
+      value.scope,
+      value.emote_type,
+      value.emoteType,
+    ]
+      .filter((part) => typeof part === "string" && part)
+      .join(" ")
+      .toLowerCase();
+
+    const looksLikeEmote =
+      Boolean(id && name) &&
+      !nestedEmoteCollection &&
+      (
+        context.includes("emote") ||
+        context.includes("emoji") ||
+        context.includes("global") ||
+        context.includes("channel") ||
+        context.includes("subscriber") ||
+        value.image_url ||
+        value.imageUrl ||
+        value.image ||
+        value.images
+      );
+
+    if (looksLikeEmote) {
+      const requiresSubscription = Boolean(
+        value.subscriber_only ||
+          value.is_subscriber_only ||
+          value.subscription_only ||
+          value.requires_subscription ||
+          value.requiresSubscription ||
+          context.includes("subscriber") ||
+          context.includes("subscription"),
+      );
+      const global =
+        Boolean(value.global || value.is_global || value.isGlobal) ||
+        context.includes("global") ||
+        context.includes("emoji");
+
+      const imageCandidates = [
+        value.image_url,
+        value.imageUrl,
+        value.url,
+        value.src,
+        value.image?.url,
+        value.image?.src,
+        value.images?.url,
+        value.images?.src,
+        value.images?.fullsize,
+      ];
+      const providedImage = imageCandidates.find(
+        (candidate) => typeof candidate === "string" && candidate.trim(),
+      );
+
+      found.set(`kick:${id}`, {
+        id,
+        code: name,
+        name,
+        url:
+          typeof providedImage === "string"
+            ? providedImage
+            : `https://files.kick.com/emotes/${encodeURIComponent(id)}/fullsize`,
+        provider: "kick",
+        category: global ? "official" : "channel",
+        scope: global ? "global" : "channel",
+        native: true,
+        emoteType: requiresSubscription ? "subscriber" : global ? "global" : "channel",
+        requiresSubscription,
+      });
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      if (child && (typeof child === "object" || Array.isArray(child))) {
+        visit(child, [...path, key]);
+      }
+    }
+  };
+
+  visit(payload);
+
+  return [...found.values()].sort(
+    (a, b) =>
+      (a.category === b.category ? 0 : a.category === "official" ? -1 : 1) ||
+      (a.name || a.code).localeCompare(b.name || b.code),
+  );
+}
 
 function timeLabel(iso: string) {
   try {
@@ -1404,21 +1515,65 @@ export default function Home() {
     }
 
     setPickerLoading(true);
-    const params = new URLSearchParams({
-      platform: selected,
-      channelId: selectedTarget.channelId,
-    });
-    if (selectedTarget.videoId) params.set("videoId", selectedTarget.videoId);
 
-    fetch(`/api/emote-picker?${params.toString()}`, { cache: "no-store" })
-      .then(async (res) => {
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "Falha ao carregar emotes.");
-        return json;
-      })
-      .then((json) => {
+    const loadPickerEmotes = async () => {
+      try {
+        const params = new URLSearchParams({
+          platform: selected,
+          channelId: selectedTarget.channelId,
+        });
+        if (selectedTarget.videoId) params.set("videoId", selectedTarget.videoId);
+
+        const response = await fetch(`/api/emote-picker?${params.toString()}`, {
+          cache: "no-store",
+        });
+        const json = await response.json();
+        if (!response.ok) {
+          throw new Error(json.error || "Falha ao carregar emotes.");
+        }
+
+        let emotes: PickerEmote[] = Array.isArray(json.emotes)
+          ? json.emotes
+          : [];
+
+        if (selected === "kick" && selectedTarget.channelName) {
+          const slug = selectedTarget.channelName
+            .trim()
+            .replace(/^@/, "")
+            .toLowerCase();
+          const endpoints = [
+            `https://kick.com/emotes/${encodeURIComponent(slug)}`,
+            `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}/emotes`,
+          ];
+
+          for (const endpoint of endpoints) {
+            try {
+              const kickResponse = await fetch(endpoint, {
+                cache: "no-store",
+                credentials: "omit",
+                headers: { Accept: "application/json" },
+              });
+              if (!kickResponse.ok) continue;
+
+              const kickPayload = await kickResponse.json();
+              const native = kickNativePickerEmotes(kickPayload);
+              if (!native.length) continue;
+
+              const unique = new Map<string, PickerEmote>();
+              for (const emote of [...native, ...emotes]) {
+                const key = `${emote.provider}:${emote.id || emote.code}`;
+                if (!unique.has(key)) unique.set(key, emote);
+              }
+              emotes = [...unique.values()];
+              break;
+            } catch {
+              // Tenta o endpoint alternativo da própria Kick.
+            }
+          }
+        }
+
         if (cancelled) return;
-        setPickerEmotes(Array.isArray(json.emotes) ? json.emotes : []);
+        setPickerEmotes(emotes);
         setPickerScopeUpgradeRequired(Boolean(json.scopeUpgradeRequired));
 
         if (
@@ -1440,13 +1595,14 @@ export default function Home() {
             return next;
           });
         }
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setPickerEmotes([]);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setPickerLoading(false);
-      });
+      }
+    };
+
+    loadPickerEmotes();
 
     return () => {
       cancelled = true;
@@ -1455,13 +1611,14 @@ export default function Home() {
     ready,
     selected,
     selectedTarget?.channelId,
+    selectedTarget?.channelName,
     selectedTarget?.videoId,
     auth[selected]?.connected,
   ]);
 
   const pickerProviders = useMemo(() => {
     const available = new Set(pickerEmotes.map((emote) => emote.provider));
-    return (["all", "twitch", "youtube", "7tv", "bttv", "ffz"] as PickerProvider[])
+    return (["all", "twitch", "kick", "youtube", "7tv", "bttv", "ffz"] as PickerProvider[])
       .filter((provider) => provider === "all" || available.has(provider as PickerEmote["provider"]));
   }, [pickerEmotes]);
 
