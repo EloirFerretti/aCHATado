@@ -1271,38 +1271,19 @@ export default function Home() {
     return selected;
   }
 
-  function kickSubGifterBadgeAsset(count: number | null) {
+  function kickSubGifterBadgeTier(count: number | null) {
     const total = Math.max(0, Number(count || 0));
+    const tiers = [
+      5000, 4000, 3000, 2000, 1000, 950, 900, 850, 800, 750, 700, 650,
+      600, 550, 500, 450, 400, 350, 300, 250, 200, 150, 100, 50, 25, 10,
+      5, 1,
+    ];
+    return tiers.find((tier) => total >= tier) || 1;
+  }
 
-    // Faixas extraídas do componente GiftBadge do frontend oficial da Kick.
-    if (total >= 5000) return "/badges/kick/sub-gifter-5000.svg";
-    if (total >= 4000) return "/badges/kick/sub-gifter-4000.svg";
-    if (total >= 3000) return "/badges/kick/sub-gifter-3000.svg";
-    if (total >= 2000) return "/badges/kick/sub-gifter-2000.svg";
-    if (total >= 1000) return "/badges/kick/sub-gifter-1000.svg";
-    if (total >= 950) return "/badges/kick/sub-gifter-950.svg";
-    if (total >= 900) return "/badges/kick/sub-gifter-900.svg";
-    if (total >= 850) return "/badges/kick/sub-gifter-850.svg";
-    if (total >= 800) return "/badges/kick/sub-gifter-800.svg";
-    if (total >= 750) return "/badges/kick/sub-gifter-750.svg";
-    if (total >= 700) return "/badges/kick/sub-gifter-700.svg";
-    if (total >= 650) return "/badges/kick/sub-gifter-650.svg";
-    if (total >= 600) return "/badges/kick/sub-gifter-600.svg";
-    if (total >= 550) return "/badges/kick/sub-gifter-550.svg";
-    if (total >= 500) return "/badges/kick/sub-gifter-500.svg";
-    if (total >= 450) return "/badges/kick/sub-gifter-450.svg";
-    if (total >= 400) return "/badges/kick/sub-gifter-400.svg";
-    if (total >= 350) return "/badges/kick/sub-gifter-350.svg";
-    if (total >= 300) return "/badges/kick/sub-gifter-300.svg";
-    if (total >= 250) return "/badges/kick/sub-gifter-250.svg";
-    if (total >= 200) return "/badges/kick/sub-gifter-200.svg";
-    if (total >= 150) return "/badges/kick/sub-gifter-150.svg";
-    if (total >= 100) return "/badges/kick/sub-gifter-100.svg";
-    if (total >= 50) return "/badges/kick/sub-gifter-50.svg";
-    if (total >= 25) return "/badges/kick/sub-gifter-25.svg";
-    if (total >= 10) return "/badges/kick/sub-gifter-10.svg";
-    if (total >= 5) return "/badges/kick/sub-gifter-5.svg";
-    return "/badges/kick/sub-gifter-1.svg";
+  function kickSubGifterBadgeAsset(count: number | null) {
+    const tier = kickSubGifterBadgeTier(count);
+    return `/badges/kick/sub-gifter-${tier}.svg`;
   }
 
   function kickBadgeAsset(type: string, count: number | null = null) {
@@ -1443,12 +1424,16 @@ export default function Home() {
                   title={
                     subscriberBadge
                       ? `${label} · badge de ${subscriberBadge.months} ${subscriberBadge.months === 1 ? "mês" : "meses"}`
-                      : label
+                      : type === "sub_gifter" || type === "subgifter" || type === "sub-gifter"
+                        ? `Sub Gifter · ${kickSubGifterBadgeTier(count)}+ sub gifts`
+                        : label
                   }
                   aria-label={
                     subscriberBadge
                       ? `${label}, badge de ${subscriberBadge.months} ${subscriberBadge.months === 1 ? "mês" : "meses"}`
-                      : label
+                      : type === "sub_gifter" || type === "subgifter" || type === "sub-gifter"
+                        ? `Sub Gifter, ${kickSubGifterBadgeTier(count)} ou mais sub gifts`
+                        : label
                   }
                   loading="eager"
                 />
