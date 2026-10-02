@@ -479,6 +479,11 @@ export default function Home() {
   const autoScrollFrameRef = useRef<number | null>(null);
   const autoScrollReleaseRef = useRef<number | null>(null);
   const previousMessageCountRef = useRef(0);
+  const clickedComposerEmotesRef = useRef<Record<Platform, Map<string, PickerEmote>>>({
+    twitch: new Map(),
+    kick: new Map(),
+    youtube: new Map(),
+  });
 
   async function loadAuth() {
     const res = await fetch("/api/auth/status", { cache: "no-store" });
@@ -1613,7 +1618,10 @@ export default function Home() {
           platform: selected,
           message:
             selected === "kick"
-              ? kickMessageWithNativeEmotes(text, pickerEmotes)
+              ? kickMessageWithNativeEmotes(text, [
+                  ...pickerEmotes,
+                  ...clickedComposerEmotesRef.current.kick.values(),
+                ])
               : text,
           channelId: target.channelId,
           liveChatId: target.liveChatId || undefined,
@@ -1878,6 +1886,11 @@ export default function Home() {
     if (!root) return;
 
     const byCode = new Map<string, PickerEmote>();
+    for (const emote of clickedComposerEmotesRef.current[selected].values()) {
+      if (emote.code && emote.url && !byCode.has(emote.code)) {
+        byCode.set(emote.code, emote);
+      }
+    }
     for (const emote of pickerEmotes) {
       if (emote.code && emote.url && !byCode.has(emote.code)) {
         byCode.set(emote.code, emote);
@@ -1893,17 +1906,17 @@ export default function Home() {
     root.replaceChildren(fragment);
   }
 
-  function syncComposerText() {
+  function syncComposerText(limit = maxLength) {
     const root = composerEditorRef.current;
     if (!root) return;
 
     const next = composerPlainText(root);
-    if (next.length <= maxLength) {
+    if (next.length <= limit) {
       setText(next);
       return;
     }
 
-    const trimmed = next.slice(0, maxLength);
+    const trimmed = next.slice(0, limit);
     setText(trimmed);
     hydrateComposer(trimmed);
     root.focus();
@@ -1982,7 +1995,7 @@ export default function Home() {
     syncComposerText();
   }
 
-  function insertPickerEmote(emote: PickerEmote) {
+  function insertPickerEmote(emote: PickerEmote, limit = maxLength) {
     const root = composerEditorRef.current;
     if (!root) return;
 
@@ -2024,7 +2037,7 @@ export default function Home() {
     const trailing = document.createTextNode(" ");
     range.insertNode(trailing);
     placeCaretAfter(trailing);
-    syncComposerText();
+    syncComposerText(limit);
   }
 
   function addChatEmoteToComposer(emote: {
@@ -2032,13 +2045,12 @@ export default function Home() {
     code: string;
     url: string;
     provider: Exclude<PickerProvider, "all">;
+    platform: Platform;
     animated?: boolean;
     zeroWidth?: boolean;
     native?: boolean;
   }) {
-    setPickerOpen(false);
-    setProfileOpen(null);
-    insertPickerEmote({
+    const composerEmote: PickerEmote = {
       id: emote.id,
       code: emote.code,
       name: emote.code,
@@ -2055,7 +2067,25 @@ export default function Home() {
       zeroWidth: emote.zeroWidth,
       native: emote.native,
       locked: false,
-    });
+    };
+
+    clickedComposerEmotesRef.current[emote.platform].set(
+      emote.code,
+      composerEmote,
+    );
+
+    setPickerOpen(false);
+    setProfileOpen(null);
+    setSelected(emote.platform);
+
+    const targetLimit = emote.platform === "youtube" ? 200 : 500;
+    const insert = () => insertPickerEmote(composerEmote, targetLimit);
+
+    if (selected === emote.platform) {
+      insert();
+    } else {
+      requestAnimationFrame(() => requestAnimationFrame(insert));
+    }
   }
 
   function showChatEmotePreview(
@@ -2087,6 +2117,7 @@ export default function Home() {
     code: string;
     url: string;
     provider: Exclude<PickerProvider, "all">;
+    platform: Platform;
     className?: string;
     animated?: boolean;
     zeroWidth?: boolean;
@@ -2107,7 +2138,7 @@ export default function Home() {
         key={options.key}
         role="button"
         tabIndex={0}
-        aria-label={`Adicionar emote ${options.code} à mensagem`}
+        aria-label={`Adicionar emote ${options.code} à mensagem da ${labels[options.platform]}`}
         onClick={(event) => {
           event.stopPropagation();
           setEmotePreview(null);
@@ -2181,6 +2212,7 @@ export default function Home() {
         code: part,
         url: emote.url,
         provider: emote.provider,
+        platform: "twitch",
         animated: emote.animated,
         zeroWidth: emote.zeroWidth,
       });
@@ -2205,6 +2237,7 @@ export default function Home() {
           code: String(fragment.text || "Twitch emote"),
           url,
           provider: "twitch",
+          platform: "twitch",
           animated: format === "animated",
           native: true,
           className: "nativeEmote twitchNativeEmote",
@@ -2217,6 +2250,7 @@ export default function Home() {
           code: String(fragment.text || "Twitch GIF"),
           url: String(fragment.gif.url),
           provider: "twitch",
+          platform: "twitch",
           animated: true,
           native: true,
           className: "nativeEmote twitchNativeEmote",
@@ -2260,6 +2294,7 @@ export default function Home() {
           code: emoteName,
           url: kickEmoteUrl,
           provider: "kick",
+          platform: "kick",
           native: true,
           className: "nativeEmote kickNativeEmote",
         }),
@@ -2566,6 +2601,7 @@ export default function Home() {
         code: emote.shortcut || part,
         url: emote.url,
         provider: "youtube",
+        platform: "youtube",
         native: true,
         className: "nativeEmote youtubeNativeEmote",
       });
