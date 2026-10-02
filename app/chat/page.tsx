@@ -334,6 +334,33 @@ function kickAvatarCacheKey(message: Message) {
   return slug ? `slug:${slug}` : null;
 }
 
+function kickAvatarFromProfilePayload(payload: any) {
+  const candidates = [
+    payload?.profile_pic,
+    payload?.profile_picture,
+    payload?.profilepic,
+    payload?.profilePic,
+    payload?.profilePicture,
+    payload?.avatar,
+    payload?.avatar_url,
+    payload?.user?.profile_pic,
+    payload?.user?.profile_picture,
+    payload?.user?.profilepic,
+    payload?.data?.profile_pic,
+    payload?.data?.profile_picture,
+    payload?.data?.profilepic,
+    payload?.data?.user?.profile_pic,
+    payload?.data?.user?.profile_picture,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeAvatarUrl(candidate);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
 function cleanReplyPreview(value: unknown) {
   return String(value || "")
     .replace(/\[emote:[^:\]]+:([^\]]+)\]/g, "$1")
@@ -1439,19 +1466,30 @@ export default function Home() {
     if (message?.platform === "kick") {
       const key = kickAvatarCacheKey(message);
       if (key && kickAvatarCache[key] === url) {
-        setKickAvatarCache((previous) => ({ ...previous, [key]: null }));
+        setKickAvatarCache((previous) => {
+          const next = { ...previous };
+          delete next[key];
+          return next;
+        });
       }
     }
   }
 
   useEffect(() => {
     let cancelled = false;
+    const roomSlug = String(channels.kick?.channelName || "")
+      .trim()
+      .replace(/^@/, "")
+      .toLowerCase();
 
     const targets = visible
       .filter((message) => message.platform === "kick")
       .map((message) => {
         const key = kickAvatarCacheKey(message);
         const slug = kickMessageSlug(message);
+        const username = String(message.author_name || slug || "")
+          .trim()
+          .replace(/^@/, "");
         const direct =
           normalizeAvatarUrl(message.author_avatar) ||
           kickAvatarFromRaw(message.raw);
@@ -1459,7 +1497,7 @@ export default function Home() {
 
         if (
           !key ||
-          !slug ||
+          !username ||
           usableDirect ||
           kickAvatarPendingRef.current.has(key) ||
           Object.prototype.hasOwnProperty.call(kickAvatarCache, key)
@@ -1467,16 +1505,19 @@ export default function Home() {
           return null;
         }
 
-        return { key, slug };
+        return { key, slug: slug || username.toLowerCase(), username };
       })
       .filter(
-        (entry): entry is { key: string; slug: string } => Boolean(entry),
+        (
+          entry,
+        ): entry is { key: string; slug: string; username: string } =>
+          Boolean(entry),
       )
       .filter(
         (entry, index, array) =>
           array.findIndex((candidate) => candidate.key === entry.key) === index,
       )
-      .slice(0, 8);
+      .slice(0, 12);
 
     if (!targets.length) return;
 
@@ -1484,31 +1525,45 @@ export default function Home() {
       kickAvatarPendingRef.current.add(target.key);
     }
 
+    const fetchKickProfile = async (url: string) => {
+      try {
+        const response = await fetch(url, {
+          cache: "no-store",
+          credentials: "omit",
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) return null;
+        return await response.json();
+      } catch {
+        return null;
+      }
+    };
+
     Promise.all(
-      targets.map(async ({ key, slug }) => {
-        try {
-          const response = await fetch(
-            `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`,
-            {
-              cache: "no-store",
-              credentials: "omit",
-              headers: { Accept: "application/json" },
-            },
-          );
-          if (!response.ok) return { key, avatar: null };
+      targets.map(async ({ key, slug, username }) => {
+        const endpoints = [
+          ...(roomSlug
+            ? [
+                `https://kick.com/api/v2/channels/${encodeURIComponent(
+                  roomSlug,
+                )}/users/${encodeURIComponent(username.toLowerCase())}`,
+              ]
+            : []),
+          `https://kick.com/api/v1/users/${encodeURIComponent(
+            username.toLowerCase(),
+          )}`,
+          `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`,
+        ];
 
-          const channel = await response.json();
-          const avatar =
-            normalizeAvatarUrl(channel?.user?.profile_pic) ||
-            normalizeAvatarUrl(channel?.user?.profile_picture) ||
-            normalizeAvatarUrl(channel?.profile_pic) ||
-            normalizeAvatarUrl(channel?.profile_picture) ||
-            null;
-
-          return { key, avatar };
-        } catch {
-          return { key, avatar: null };
+        for (const endpoint of endpoints) {
+          const payload = await fetchKickProfile(endpoint);
+          const avatar = kickAvatarFromProfilePayload(payload);
+          if (avatar && !brokenAvatarUrls[avatar]) {
+            return { key, avatar };
+          }
         }
+
+        return { key, avatar: null };
       }),
     ).then((results) => {
       for (const target of targets) {
@@ -1528,7 +1583,12 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [visible, kickAvatarCache, brokenAvatarUrls]);
+  }, [
+    visible,
+    kickAvatarCache,
+    brokenAvatarUrls,
+    channels.kick?.channelName,
+  ]);
 
   const counts = useMemo(() => ({
     twitch: messages.filter((m) => m.platform === "twitch").length,
