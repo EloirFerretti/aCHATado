@@ -1027,3 +1027,257 @@ a { color: inherit; text-decoration: none; }
   background:#252b37;
   color:#fff;
 }
+
+
+/* Perfil de usuário em popup */
+.authorProfileButton {
+  display:inline-flex;
+  min-width:0;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  text-align:left;
+  cursor:pointer;
+}
+.authorProfileButton strong {
+  cursor:pointer;
+}
+.authorProfileButton:hover strong,
+.authorProfileButton:focus-visible strong {
+  text-decoration:underline;
+  text-underline-offset:2px;
+}
+
+.userProfileOverlay {
+  position:fixed;
+  inset:0;
+  z-index:1400;
+  display:grid;
+  place-items:center;
+  padding:20px;
+  background:rgba(4,6,10,.72);
+  backdrop-filter:blur(5px);
+}
+.userProfileDialog {
+  position:relative;
+  width:min(520px, calc(100vw - 28px));
+  max-height:min(700px, calc(100vh - 32px));
+  overflow:hidden;
+  border:1px solid #2d3441;
+  border-radius:16px;
+  background:#12161e;
+  box-shadow:0 24px 80px rgba(0,0,0,.5);
+}
+.userProfileDialog.twitch {
+  box-shadow:0 24px 80px rgba(0,0,0,.5), inset 0 2px 0 rgba(169,112,255,.5);
+}
+.userProfileDialog.kick {
+  box-shadow:0 24px 80px rgba(0,0,0,.5), inset 0 2px 0 rgba(83,252,24,.42);
+}
+.userProfileDialog.youtube {
+  box-shadow:0 24px 80px rgba(0,0,0,.5), inset 0 2px 0 rgba(255,69,58,.46);
+}
+.userProfileClose {
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:2;
+  width:30px;
+  height:30px;
+  display:grid;
+  place-items:center;
+  padding:0;
+  border:1px solid #323947;
+  border-radius:8px;
+  background:#1b202a;
+  color:#8f98a8;
+  font-size:20px;
+  line-height:1;
+  cursor:pointer;
+}
+.userProfileClose:hover,
+.userProfileClose:focus-visible {
+  background:#242b37;
+  color:#fff;
+}
+.userProfileHeader {
+  display:flex;
+  align-items:center;
+  gap:16px;
+  padding:22px 52px 20px 22px;
+  border-bottom:1px solid #252b36;
+  background:linear-gradient(180deg, rgba(255,255,255,.025), transparent);
+}
+.userProfileAvatar {
+  flex:0 0 74px;
+  width:74px;
+  height:74px;
+  padding:3px;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  border-radius:50%;
+  background:#2a303b;
+  color:#dce1e9;
+  font-size:24px;
+  font-weight:900;
+}
+.userProfileAvatar.twitch {
+  box-shadow:inset 0 0 0 2px rgba(169,112,255,.6);
+}
+.userProfileAvatar.kick {
+  box-shadow:inset 0 0 0 2px rgba(83,252,24,.55);
+}
+.userProfileAvatar.youtube {
+  box-shadow:inset 0 0 0 2px rgba(255,69,58,.55);
+}
+.userProfileAvatar img {
+  display:block;
+  width:100%;
+  height:100%;
+  min-width:0;
+  min-height:0;
+  max-width:100%;
+  max-height:100%;
+  aspect-ratio:1 / 1;
+  object-fit:cover;
+  object-position:center;
+  border-radius:50%;
+}
+.userProfileIdentity {
+  min-width:0;
+}
+.userProfileIdentity h2 {
+  margin:7px 0 9px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#f4f6f9;
+  font-size:20px;
+  line-height:1.1;
+}
+.userProfileExternalLink {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:6px 9px;
+  border:1px solid #343b49;
+  border-radius:7px;
+  background:#1a1f28;
+  color:#cbd2dc;
+  font-size:10px;
+  font-weight:700;
+  text-decoration:none;
+}
+.userProfileExternalLink:hover,
+.userProfileExternalLink:focus-visible {
+  background:#232a35;
+  color:#fff;
+}
+.userProfileExternalLink.twitch:hover,
+.userProfileExternalLink.twitch:focus-visible {
+  border-color:rgba(169,112,255,.55);
+}
+.userProfileExternalLink.kick:hover,
+.userProfileExternalLink.kick:focus-visible {
+  border-color:rgba(83,252,24,.55);
+}
+.userProfileExternalLink.youtube:hover,
+.userProfileExternalLink.youtube:focus-visible {
+  border-color:rgba(255,69,58,.55);
+}
+.userProfileExternalUnavailable {
+  color:#6e7787;
+  font-size:10px;
+}
+.userProfileMessagesHeader {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 18px 9px;
+}
+.userProfileMessagesHeader strong {
+  color:#dce1e8;
+  font-size:11px;
+}
+.userProfileMessagesHeader span {
+  color:#677182;
+  font-size:9px;
+}
+.userProfileMessages {
+  max-height:410px;
+  overflow:auto;
+  padding:0 12px 14px;
+}
+.userProfileMessage {
+  width:100%;
+  display:grid;
+  grid-template-columns:44px minmax(0,1fr);
+  align-items:start;
+  gap:8px;
+  padding:9px 8px;
+  border:0;
+  border-bottom:1px solid #222833;
+  background:transparent;
+  color:#cfd5de;
+  text-align:left;
+  cursor:pointer;
+}
+.userProfileMessage:last-child {
+  border-bottom:0;
+}
+.userProfileMessage:hover,
+.userProfileMessage:focus-visible {
+  border-radius:7px;
+  background:#1b2029;
+}
+.userProfileMessage time {
+  padding-top:1px;
+  color:#616b7b;
+  font-size:9px;
+}
+.userProfileMessage span {
+  min-width:0;
+  display:-webkit-box;
+  overflow:hidden;
+  color:#cbd1da;
+  font-size:11px;
+  line-height:1.4;
+  word-break:break-word;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+}
+.userProfileEmpty {
+  padding:26px 12px 30px;
+  color:#697283;
+  font-size:11px;
+  text-align:center;
+}
+
+@media (max-width: 560px) {
+  .userProfileOverlay {
+    padding:10px;
+  }
+  .userProfileDialog {
+    width:100%;
+    max-height:calc(100vh - 20px);
+  }
+  .userProfileHeader {
+    gap:12px;
+    padding:18px 44px 16px 16px;
+  }
+  .userProfileAvatar {
+    flex-basis:60px;
+    width:60px;
+    height:60px;
+  }
+  .userProfileIdentity h2 {
+    font-size:17px;
+  }
+  .userProfileMessages {
+    max-height:50vh;
+  }
+}
