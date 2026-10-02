@@ -65,10 +65,13 @@ export async function GET(
       authorizeUrl.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID);
       authorizeUrl.searchParams.set("redirect_uri", redirectUri);
       authorizeUrl.searchParams.set("response_type", "code");
-      authorizeUrl.searchParams.set("scope", "https://www.googleapis.com/auth/youtube.force-ssl");
+      authorizeUrl.searchParams.set(
+        "scope",
+        "openid profile https://www.googleapis.com/auth/youtube.force-ssl",
+      );
       authorizeUrl.searchParams.set("access_type", "offline");
       authorizeUrl.searchParams.set("include_granted_scopes", "true");
-      authorizeUrl.searchParams.set("prompt", "consent");
+      authorizeUrl.searchParams.set("prompt", "select_account consent");
       authorizeUrl.searchParams.set("state", state);
     }
 
