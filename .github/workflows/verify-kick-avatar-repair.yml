@@ -1,0 +1,173 @@
+name: Verify Kick avatar repair
+
+on:
+  push:
+    branches:
+      - verify-kick-avatar-repair
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          npm install
+          npm run build
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Verify avatar fallback and Kick completion
+        run: |
+          cat > verify-avatar.mjs <<'EOF'
+          import { chromium } from "playwright";
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+          const page = await context.newPage();
+
+          await page.route("**/api/auth/status", async (route) => {
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                twitch: { connected: false, configured: true },
+                kick: { connected: true, configured: true, userName: "Kick test" },
+                youtube: { connected: false, configured: true },
+              }),
+            });
+          });
+
+          await page.goto("https://achatado.onrender.com/chat", {
+            waitUntil: "domcontentloaded",
+            timeout: 90000,
+          });
+
+          await page.evaluate(async () => {
+            const response = await fetch("/api/channels/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channels: { twitch: "", kick: "xqc", youtube: "" },
+              }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json?.channels?.kick?.channelId) {
+              throw new Error("Kick channel resolution failed: " + JSON.stringify(json));
+            }
+            localStorage.setItem(
+              "achatado_channel_inputs",
+              JSON.stringify({ twitch: "", kick: "xqc", youtube: "" }),
+            );
+            localStorage.setItem("achatado_channels", JSON.stringify(json.channels));
+          });
+
+          let result = null;
+
+          for (let attempt = 1; attempt <= 30; attempt++) {
+            await page.reload({ waitUntil: "domcontentloaded", timeout: 90000 });
+
+            const kickButton = page.locator(".platformSwitch button.kick");
+            if (await kickButton.count()) await kickButton.click();
+
+            await page.waitForTimeout(3500);
+
+            result = await page.evaluate(() => {
+              const rings = [...document.querySelectorAll(".avatarRing.kick")];
+              const fallbacks = [...document.querySelectorAll(".avatarRing.kick .avatarFallback")];
+              const images = [...document.querySelectorAll(".avatarRing.kick img")];
+
+              const firstFallback = fallbacks[0];
+              const fallbackStyle = firstFallback ? getComputedStyle(firstFallback) : null;
+
+              return {
+                ringCount: rings.length,
+                fallbackCount: fallbacks.length,
+                imageCount: images.length,
+                visibleImageCount: images.filter((img) => {
+                  const style = getComputedStyle(img);
+                  return !img.hidden && style.display !== "none";
+                }).length,
+                fallbackStyle: fallbackStyle
+                  ? {
+                      display: fallbackStyle.display,
+                      placeItems: fallbackStyle.placeItems,
+                      lineHeight: fallbackStyle.lineHeight,
+                      textAlign: fallbackStyle.textAlign,
+                    }
+                  : null,
+                sampleSources: images.slice(0, 8).map((img) => img.getAttribute("src")),
+              };
+            });
+
+            console.log("ATTEMPT=" + attempt + " " + JSON.stringify(result));
+
+            if (
+              result.ringCount > 0 &&
+              result.fallbackCount === result.ringCount &&
+              result.fallbackStyle?.display === "grid" &&
+              result.fallbackStyle?.textAlign === "center" &&
+              result.visibleImageCount > 0
+            ) {
+              break;
+            }
+
+            await page.waitForTimeout(5000);
+          }
+
+          console.log("AVATAR_RESULT=" + JSON.stringify(result, null, 2));
+
+          if (!result?.ringCount) throw new Error("No Kick message avatars rendered");
+          if (result.fallbackCount !== result.ringCount) {
+            throw new Error("Fallback is not present behind every Kick avatar");
+          }
+          if (result.fallbackStyle?.display !== "grid") {
+            throw new Error("Fallback is not grid-centered");
+          }
+          if (result.fallbackStyle?.textAlign !== "center") {
+            throw new Error("Fallback text is not centered");
+          }
+          if (!result.visibleImageCount) {
+            throw new Error("No Kick avatar image was completed/resolved");
+          }
+
+          const brokenTest = await page.evaluate(async () => {
+            const img = document.querySelector(".avatarRing.kick img");
+            if (!img) return null;
+
+            img.src = "https://invalid.example.invalid/avatar.webp";
+            img.dispatchEvent(new Event("error"));
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            const ring = img.closest(".avatarRing.kick");
+            const fallback = ring?.querySelector(".avatarFallback");
+            const style = fallback ? getComputedStyle(fallback) : null;
+            return {
+              imageHidden: img.hidden,
+              fallbackText: fallback?.textContent?.trim() || "",
+              fallbackDisplay: style?.display || "",
+              fallbackPlaceItems: style?.placeItems || "",
+            };
+          });
+
+          console.log("BROKEN_RESULT=" + JSON.stringify(brokenTest, null, 2));
+
+          if (!brokenTest?.imageHidden) {
+            throw new Error("Broken avatar did not hide");
+          }
+          if (!brokenTest.fallbackText) {
+            throw new Error("Fallback initial was not visible after avatar failure");
+          }
+          if (brokenTest.fallbackDisplay !== "grid") {
+            throw new Error("Fallback lost centered layout after avatar failure");
+          }
+
+          await browser.close();
+          EOF
+
+          node verify-avatar.mjs
