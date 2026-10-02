@@ -88,21 +88,34 @@ jobs:
                 await pickerButton.click();
                 await page.waitForTimeout(2500);
 
-                const ayaya = page
+                const native = page
                   .locator(".emotePickerItem")
-                  .filter({ hasText: "AYAYA" })
+                  .filter({
+                    has: page.locator('img[src*="files.kick.com/emotes/"]'),
+                  })
                   .first();
 
-                if (await ayaya.count()) {
-                  await ayaya.click();
+                if (await native.count()) {
+                  const picked = await native.evaluate((button) => {
+                    const img = button.querySelector("img");
+                    return {
+                      code: img?.getAttribute("alt") || "",
+                      src: img?.getAttribute("src") || "",
+                    };
+                  });
+
+                  if (!picked.code) continue;
+
+                  await native.click();
                   await page.waitForTimeout(300);
 
-                  result = await page.evaluate(() => {
+                  const selected = await page.evaluate((code) => {
                     const textarea = document.querySelector(".textWrap textarea");
                     const mirror = document.querySelector(".composerRichMirror");
                     const image = mirror?.querySelector("img");
                     const style = textarea ? getComputedStyle(textarea) : null;
                     return {
+                      code,
                       textareaValue: textarea?.value || "",
                       textareaColor: style?.color || "",
                       webkitTextFillColor:
@@ -111,13 +124,31 @@ jobs:
                       imageSrc: image?.getAttribute("src") || "",
                       imageCount: mirror?.querySelectorAll("img").length || 0,
                     };
-                  });
+                  }, picked.code);
 
+                  const textarea = page.locator(".textWrap textarea");
+                  await textarea.fill(`teste ${picked.code} fim`);
+                  await page.waitForTimeout(300);
+
+                  const typed = await page.evaluate((code) => {
+                    const mirror = document.querySelector(".composerRichMirror");
+                    return {
+                      code,
+                      mirrorText: mirror?.textContent || "",
+                      imageCount: mirror?.querySelectorAll("img").length || 0,
+                    };
+                  }, picked.code);
+
+                  result = { picked, selected, typed };
                   console.log("ATTEMPT=" + attempt + " " + JSON.stringify(result));
 
                   if (
-                    result.imageCount > 0 &&
-                    !result.mirrorText.includes("AYAYA")
+                    selected.imageCount > 0 &&
+                    !selected.mirrorText.includes(picked.code) &&
+                    typed.imageCount > 0 &&
+                    !typed.mirrorText.includes(picked.code) &&
+                    typed.mirrorText.includes("teste") &&
+                    typed.mirrorText.includes("fim")
                   ) {
                     break;
                   }
@@ -130,17 +161,23 @@ jobs:
 
           console.log("RICH_COMPOSER_RESULT=" + JSON.stringify(result, null, 2));
 
-          if (!result?.textareaValue?.includes("AYAYA")) {
+          if (!result?.selected?.textareaValue?.includes(result?.picked?.code || "")) {
             throw new Error("Underlying plain-text shortcut was not preserved");
           }
-          if (!result?.imageCount) {
-            throw new Error("Emote image was not rendered in the composer mirror");
+          if (!result?.selected?.imageCount) {
+            throw new Error("Selected emote image was not rendered in the composer mirror");
           }
-          if (result.mirrorText.includes("AYAYA")) {
-            throw new Error("Shortcut text is still visible in the rich composer mirror");
+          if (result.selected.mirrorText.includes(result.picked.code)) {
+            throw new Error("Selected shortcut text is still visible in the rich composer mirror");
           }
-          if (!result.imageSrc.includes("files.kick.com/emotes/")) {
+          if (!result.selected.imageSrc.includes("files.kick.com/emotes/")) {
             throw new Error("Composer mirror did not render the native Kick emote image");
+          }
+          if (!result?.typed?.imageCount) {
+            throw new Error("Typed emote shortcut did not render an image");
+          }
+          if (result.typed.mirrorText.includes(result.picked.code)) {
+            throw new Error("Typed shortcut text is still visible in the rich composer mirror");
           }
 
           await browser.close();
