@@ -244,32 +244,35 @@ a { color: inherit; text-decoration: none; }
   border-color:#4a5466;
   background:#272e3b;
 }
-.textWrap textarea { padding-left:48px; }
 
-.textWrap.hasComposerEmotes textarea {
-  position:relative;
-  z-index:2;
-  color:transparent;
-  -webkit-text-fill-color:transparent;
-  caret-color:#fff;
-  background:transparent;
-}
-.composerRichMirror {
-  position:absolute;
-  inset:0;
-  z-index:1;
-  overflow:hidden;
-  border:1px solid transparent;
+.composerRichEditor {
+  width:100%;
+  min-height:46px;
+  max-height:120px;
+  overflow:auto;
+  border:1px solid #303746;
+  outline:0;
   border-radius:11px;
-  padding:13px 62px 10px 48px;
+  background:#171b23;
   color:#fff;
-  font:inherit;
+  padding:13px 62px 10px 48px;
   line-height:20px;
   white-space:pre-wrap;
   overflow-wrap:anywhere;
+  caret-color:#fff;
+  cursor:text;
+  user-select:text;
+}
+.composerRichEditor:focus {
+  border-color:#4a5466;
+  box-shadow:0 0 0 3px rgba(100,110,130,.08);
+}
+.composerRichEditor:empty::before {
+  content:attr(data-placeholder);
+  color:#626a78;
   pointer-events:none;
 }
-.composerRichEmote {
+.composerRichEditor .composerRichEmote {
   display:inline-flex;
   width:30px;
   height:20px;
@@ -277,19 +280,16 @@ a { color: inherit; text-decoration: none; }
   align-items:center;
   justify-content:center;
   vertical-align:middle;
+  user-select:all;
 }
-.composerRichEmote img {
+.composerRichEditor .composerRichEmote img {
   display:block;
   width:auto;
   height:auto;
   max-width:30px;
   max-height:28px;
   object-fit:contain;
-}
-.textWrap.hasComposerEmotes textarea::selection {
-  background:transparent;
-  color:transparent;
-  -webkit-text-fill-color:transparent;
+  pointer-events:none;
 }
 
 .emotePickerPanel {
