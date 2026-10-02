@@ -1502,3 +1502,63 @@ a { color: inherit; text-decoration: none; }
     max-height:50vh;
   }
 }
+
+
+/* Mantém /chat dentro da viewport; somente áreas internas rolam. */
+.chatShell:not(.popupMode) {
+  height:100dvh;
+  min-height:0;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  padding-bottom:10px;
+}
+.chatShell:not(.popupMode) .topbar {
+  flex:0 0 84px;
+  width:100%;
+}
+.chatShell:not(.popupMode) .demoBanner {
+  flex:0 0 auto;
+  width:100%;
+}
+.chatShell:not(.popupMode) .workspace {
+  flex:1 1 auto;
+  width:100%;
+  height:auto;
+  min-height:0;
+  margin-top:20px;
+}
+.chatShell:not(.popupMode) .chatPanel {
+  height:100%;
+  min-height:0;
+}
+.chatShell:not(.popupMode) .sidebar {
+  max-height:100%;
+  overflow-y:auto;
+  scrollbar-width:thin;
+}
+.chatShell:not(.popupMode) .siteFooter {
+  flex:0 0 auto;
+  width:100%;
+  margin-top:8px;
+  padding-bottom:0;
+}
+@media (max-width:800px) {
+  .chatShell:not(.popupMode) {
+    padding-bottom:0;
+  }
+  .chatShell:not(.popupMode) .topbar {
+    flex-basis:70px;
+  }
+  .chatShell:not(.popupMode) .workspace {
+    margin-top:0;
+    min-height:0;
+  }
+  .chatShell:not(.popupMode) .chatPanel {
+    height:100%;
+    min-height:0;
+  }
+  .chatShell:not(.popupMode) .siteFooter {
+    display:none;
+  }
+}
