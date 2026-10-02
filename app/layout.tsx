@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   title: "aCHATado",
   description: "Chat unificado de Twitch, Kick e YouTube",
   verification: {
-    google: "IzKFUyhUEx1ZVHKVN4TRqZnKT_qaLEbDFw8J6DOkT8I",
+    google: "mwoQ9eBLr0x7xwg6LjaMga9Zkrm8xfTQsVVo7ELTMPs",
   },
 };
 
