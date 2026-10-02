@@ -223,16 +223,25 @@ function startStream(entry: StreamEntry) {
       return;
     }
 
-    // RESOURCE_EXHAUSTED em streamList normalmente indica rate limit/reconexão
-    // rápida demais, não necessariamente esgotamento da cota diária.
+    const resourceExhausted = code === grpc.status.RESOURCE_EXHAUSTED;
+    const quotaLike =
+      resourceExhausted &&
+      /quota|resource has been exhausted|rate limit|too many requests/i.test(text);
+
+    // Quando o Google sinaliza esgotamento de recurso/cota, não martelamos
+    // o endpoint. Um backoff longo evita centenas de reconexões inúteis.
     scheduleReconnect(
       entry,
-      code === grpc.status.RESOURCE_EXHAUSTED ? 15_000 : 5_000,
+      quotaLike ? 30 * 60_000 : resourceExhausted ? 60_000 : 5_000,
     );
   });
 
   call.on("end", () => {
-    if (!entry.stopped && entry.status !== "ended") {
+    if (
+      !entry.stopped &&
+      entry.status !== "ended" &&
+      entry.status !== "backoff"
+    ) {
       console.warn("[youtube-stream] stream ended unexpectedly", {
         liveChatId: entry.liveChatId.slice(0, 12),
       });
