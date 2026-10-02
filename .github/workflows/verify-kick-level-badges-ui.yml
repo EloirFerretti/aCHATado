@@ -1,0 +1,105 @@
+name: Verify Kick level badges UI
+
+on:
+  push:
+    branches:
+      - verify-kick-badges-ui
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null 2>&1
+
+      - name: Verify rendered level badges
+        run: |
+          cat > verify-kick-ui.mjs <<'EOF'
+          import { chromium } from "playwright";
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            viewport: { width: 1440, height: 1000 },
+          });
+          const page = await context.newPage();
+
+          await page.goto("https://achatado.onrender.com/chat", {
+            waitUntil: "domcontentloaded",
+            timeout: 90000,
+          });
+
+          const resolved = await page.evaluate(async () => {
+            const response = await fetch("/api/channels/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                channels: { twitch: "", kick: "xqc", youtube: "" },
+              }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json?.channels?.kick?.channelId) {
+              throw new Error(
+                "Kick channel resolution failed: " + JSON.stringify(json),
+              );
+            }
+
+            localStorage.setItem(
+              "achatado_channel_inputs",
+              JSON.stringify({ twitch: "", kick: "xqc", youtube: "" }),
+            );
+            localStorage.setItem(
+              "achatado_channels",
+              JSON.stringify(json.channels),
+            );
+            return json.channels.kick;
+          });
+
+          console.log("RESOLVED_KICK=" + JSON.stringify(resolved));
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 90000 });
+
+          await page.waitForFunction(
+            () =>
+              document.querySelectorAll(
+                'img[src*="/badges/kick/level-"]',
+              ).length > 0,
+            null,
+            { timeout: 20000 },
+          );
+
+          const result = await page.evaluate(() => {
+            const badges = [
+              ...document.querySelectorAll(
+                'img[src*="/badges/kick/level-"]',
+              ),
+            ];
+            return {
+              levelBadgeCount: badges.length,
+              sources: [...new Set(badges.map((img) => img.getAttribute("src")))]
+                .slice(0, 20),
+              titles: [...new Set(badges.map((img) => img.getAttribute("title")))]
+                .filter(Boolean)
+                .slice(0, 20),
+              totalKickBadgeImages: document.querySelectorAll(
+                "img.kickUserBadgeImage",
+              ).length,
+            };
+          });
+
+          console.log("KICK_UI_RESULT=" + JSON.stringify(result, null, 2));
+
+          if (result.levelBadgeCount < 1) {
+            throw new Error("No official Kick level badge rendered in the aCHATado DOM");
+          }
+          if (!result.sources.every((src) => /\/badges\/kick\/level-\d+\.svg$/.test(src || ""))) {
+            throw new Error("A rendered level badge did not use the local official SVG catalog");
+          }
+
+          await browser.close();
+          EOF
+          node verify-kick-ui.mjs
