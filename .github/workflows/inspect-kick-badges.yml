@@ -20,7 +20,7 @@ jobs:
 
       - name: Inspect Kick frontend
         run: |
-          cat > /tmp/inspect-kick.mjs <<'EOF'
+          cat > inspect-kick.mjs <<'EOF'
           import { chromium } from "playwright";
           import fs from "node:fs/promises";
 
@@ -127,7 +127,7 @@ jobs:
           console.log("matches", matches.length);
           console.log("SVG responses", svgResponses.length);
           EOF
-          node /tmp/inspect-kick.mjs
+          node inspect-kick.mjs
 
       - name: Print badge-related findings
         run: |
