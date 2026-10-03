@@ -1997,15 +1997,23 @@ export default function Home() {
 
   function messageMentionsConnectedAccount(message: Message) {
     const content = String(message.message || "").toLocaleLowerCase();
+    const reply = messageReplyInfo(message);
+    const replyAuthor = String(reply?.authorName || "")
+      .trim()
+      .replace(/^@/, "")
+      .toLocaleLowerCase();
+
     return platforms.some((platform) => {
       const userName = String(auth[platform]?.userName || "")
         .trim()
         .replace(/^@/, "")
         .toLocaleLowerCase();
       if (!userName) return false;
+
       return (
         content.includes(`@${userName}`) ||
-        content.split(/\s+/).some((part) => part.replace(/^@/, "") === userName)
+        content.split(/\s+/).some((part) => part.replace(/^@/, "") === userName) ||
+        replyAuthor === userName
       );
     });
   }
@@ -3490,6 +3498,30 @@ export default function Home() {
     return message.message;
   }
 
+  function renderReplyMention(message: Message) {
+    const reply = messageReplyInfo(message);
+    if (!reply?.authorName) return null;
+
+    const mention = `@${reply.authorName.replace(/^@/, "")}`;
+    const plainText = String(message.message || "").trimStart();
+    if (
+      plainText.toLocaleLowerCase().startsWith(
+        mention.toLocaleLowerCase(),
+      )
+    ) {
+      return null;
+    }
+
+    return (
+      <span
+        className={`replyMention ${message.platform}`}
+        title={`Resposta para ${reply.authorName}`}
+      >
+        {mention}
+      </span>
+    );
+  }
+
   function renderSidebarContent() {
     return (
       <>
@@ -3870,7 +3902,10 @@ export default function Home() {
                         </button>
                       )}
                   </div>
-                  <p className="chatText">{renderMessageText(m)}</p>
+                  <p className="chatText">
+                    {renderReplyMention(m)}
+                    {renderMessageText(m)}
+                  </p>
                 </div>
               </article>
             ))}
@@ -4278,6 +4313,7 @@ export default function Home() {
                       <time>{timeLabel(message.created_at)}</time>
                     )}
                     <span className="userProfileMessageText">
+                      {renderReplyMention(message)}
                       {renderMessageText(message)}
                     </span>
                   </button>
