@@ -332,7 +332,7 @@ function isBotMessage(message: Message) {
 }
 
 const CHAT_LINK_PATTERN =
-  /(?:https?:\/\/|www\.)[^\s<]+|\b[a-z0-9][a-z0-9.-]*\.(?:com|net|org|gg|tv|io|co|me|live|app|dev|br)(?:\/[^\s<]*)?/gi;
+  /(?:https?:\/\/|www\.)[^\s<]+|\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}(?::\d{2,5})?(?:\/[^\s<]*)?/gi;
 
 function maskUntrustedLinks(value: string) {
   return value.replace(CHAT_LINK_PATTERN, "[link oculto]");
@@ -3466,9 +3466,13 @@ export default function Home() {
       ? maskUntrustedLinks(rawSource || message.message)
       : rawSource;
     if (!source) {
-      return shouldMaskLinks(message)
+      const fallback = shouldMaskLinks(message)
         ? maskUntrustedLinks(message.message)
         : message.message;
+      return renderClickableText(
+        fallback,
+        `${message.platform_message_id}-kick-fallback`,
+      );
     }
 
     const parts: any[] = [];
