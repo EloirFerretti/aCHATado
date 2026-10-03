@@ -1766,3 +1766,416 @@ a { color: inherit; text-decoration: none; }
     grid-template-columns:1fr;
   }
 }
+
+
+/* Configurações do chat */
+.topbarActions {
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.topSettingsButton {
+  height:34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  padding:0 11px;
+  border:1px solid #303746;
+  border-radius:10px;
+  background:#151923;
+  color:#b9c0cd;
+  font-size:10px;
+  font-weight:750;
+  cursor:pointer;
+  transition:background .14s ease,border-color .14s ease,color .14s ease;
+}
+.topSettingsButton:hover,
+.topSettingsButton:focus-visible {
+  background:#1e2430;
+  border-color:#454e60;
+  color:#fff;
+  outline:none;
+}
+.topSettingsButton svg,
+.settingsHeaderIcon svg {
+  width:17px;
+  height:17px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.7;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.topSettingsButton svg circle,
+.settingsHeaderIcon svg circle {
+  fill:currentColor;
+  stroke:none;
+}
+
+.chatPreferencesDialog {
+  width:min(540px, calc(100vw - 28px));
+  max-height:min(920px, calc(100vh - 24px));
+  border-color:#292f3b;
+  border-radius:14px;
+  background:#10131a;
+}
+.preferencesHeader {
+  min-height:64px;
+  justify-content:flex-start;
+  padding:10px 8px 10px 10px;
+  background:#0e1117;
+  border-bottom-color:#252a35;
+}
+.settingsHeaderIcon {
+  flex:0 0 36px;
+  width:36px;
+  height:36px;
+  display:grid;
+  place-items:center;
+  border:1px solid #555b82;
+  border-radius:9px;
+  background:#292d43;
+  color:#c4c6ff;
+}
+.settingsHeaderIcon svg {
+  width:20px;
+  height:20px;
+}
+.settingsHeaderCopy {
+  min-width:0;
+  flex:1;
+}
+.popupSettingsHeader.preferencesHeader .settingsHeaderCopy strong {
+  font-size:15px;
+  line-height:1.2;
+  color:#f4f5f8;
+}
+.popupSettingsHeader.preferencesHeader .settingsHeaderCopy span {
+  margin-top:2px;
+  color:#b0b4bf;
+  font-size:11px;
+  line-height:1.3;
+}
+.preferencesHeader > button {
+  width:36px;
+  height:36px;
+  margin-left:auto;
+  border:1px solid #252b36;
+  background:#0f1218;
+  color:#737b8b;
+  font-size:19px;
+}
+.preferencesHeader > button:hover {
+  border-color:#343b48;
+  background:#171b23;
+}
+
+.preferencesBody {
+  display:flex;
+  flex-direction:column;
+  gap:24px;
+  padding:18px 9px 20px;
+  background:#11141b;
+}
+.settingsSection {
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.settingsSectionTitle {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0 2px 4px;
+  color:#818696;
+  font-size:10px;
+  line-height:1;
+  font-weight:850;
+  letter-spacing:.07em;
+}
+.settingsSectionTitle > span {
+  width:13px;
+  display:grid;
+  place-items:center;
+  color:#aaa6ff;
+  font-size:11px;
+}
+.settingsCard {
+  min-height:67px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:13px 13px;
+  border:1px solid #242a35;
+  border-radius:13px;
+  background:#171a22;
+}
+.settingsCardCopy {
+  min-width:0;
+  flex:1;
+}
+.settingsCardCopy strong,
+.settingsCardCopy > span {
+  display:block;
+}
+.settingsCardCopy strong {
+  color:#e2e4e9;
+  font-size:13px;
+  line-height:1.3;
+}
+.settingsCardCopy > span {
+  margin-top:2px;
+  color:#b0b3be;
+  font-size:10.5px;
+  line-height:1.35;
+}
+
+.settingsSwitch {
+  position:relative;
+  flex:0 0 40px;
+  width:40px;
+  height:23px;
+  padding:0;
+  border:0;
+  border-radius:999px;
+  background:#363c49;
+  cursor:pointer;
+  transition:background .16s ease;
+}
+.settingsSwitch > span {
+  position:absolute;
+  top:3px;
+  left:3px;
+  width:17px;
+  height:17px;
+  margin:0;
+  border-radius:50%;
+  background:#f8f9fb;
+  box-shadow:0 1px 4px rgba(0,0,0,.35);
+  transition:transform .16s ease;
+}
+.settingsSwitch.active {
+  background:#a8a5ff;
+}
+.settingsSwitch.active > span {
+  transform:translateX(17px);
+}
+.settingsSwitch:focus-visible {
+  outline:2px solid #8e8afa;
+  outline-offset:2px;
+}
+
+.settingsFontCard {
+  display:block;
+  padding:13px;
+}
+.settingsFontHeading {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.settingsFontHeading > strong {
+  display:block;
+}
+.settingsCardCopy .settingsFontValue {
+  flex:0 0 auto;
+  margin:0;
+  color:#8f94a4;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:9px;
+  font-weight:500;
+}
+.settingsSegmented {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:6px;
+  margin-top:12px;
+}
+.settingsSegmented button {
+  height:33px;
+  border:1px solid #252b36;
+  border-radius:8px;
+  background:#1c1f28;
+  color:#c0c3ce;
+  font-size:10.5px;
+  cursor:pointer;
+}
+.settingsSegmented button:hover {
+  background:#242934;
+}
+.settingsSegmented button.active {
+  border-color:#aaa6ff;
+  background:#45485f;
+  color:#c8c5ff;
+  box-shadow:inset 0 0 0 1px rgba(194,190,255,.12);
+}
+
+.settingsFooter {
+  flex:0 0 auto;
+  min-height:51px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:8px;
+  border-top:1px solid #252a34;
+  background:#0e1117;
+}
+.settingsFooter > div {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.restoreSettingsButton,
+.cancelSettingsButton,
+.saveSettingsButton {
+  min-height:34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:0 13px;
+  border-radius:9px;
+  font-size:10.5px;
+  font-weight:750;
+  cursor:pointer;
+}
+.restoreSettingsButton {
+  border:0;
+  background:transparent;
+  color:#969cab;
+}
+.restoreSettingsButton:hover {
+  color:#d8dbe2;
+}
+.cancelSettingsButton {
+  border:1px solid #282e39;
+  background:#1b1f28;
+  color:#d2d5dc;
+}
+.cancelSettingsButton:hover {
+  background:#242934;
+}
+.saveSettingsButton {
+  border:1px solid #8f38f0;
+  background:#8e35ec;
+  color:white;
+}
+.saveSettingsButton:hover {
+  background:#9a45f3;
+}
+
+/* Preferências aplicadas ao feed */
+.chatShell.feedFont-small .message p.chatText {
+  font-size:12px;
+}
+.chatShell.feedFont-medium .message p.chatText {
+  font-size:14px;
+}
+.chatShell.feedFont-large .message p.chatText {
+  font-size:16px;
+}
+.chatShell.feedFont-small .meta strong {
+  font-size:11px;
+}
+.chatShell.feedFont-medium .meta strong {
+  font-size:12px;
+}
+.chatShell.feedFont-large .meta strong {
+  font-size:14px;
+}
+.chatShell.compactFeed .messageList {
+  padding-top:7px;
+  padding-bottom:12px;
+}
+.chatShell.compactFeed .message {
+  gap:8px;
+  padding:5px 6px;
+  border-radius:9px;
+}
+.chatShell.compactFeed .avatarRing {
+  width:31px;
+  height:31px;
+}
+.chatShell.compactFeed .miniPlatform {
+  right:-3px;
+  bottom:-3px;
+  width:15px;
+  height:15px;
+  font-size:7px;
+}
+.chatShell.compactFeed .messageBody {
+  padding-top:0;
+}
+.chatShell.compactFeed .meta {
+  min-height:17px;
+  gap:5px;
+}
+.chatShell.compactFeed .message p.chatText {
+  margin-top:2px;
+  line-height:1.35;
+}
+.chatShell.compactFeed .chatEmote {
+  height:24px;
+  margin-top:-4px;
+  margin-bottom:-3px;
+}
+.chatShell.compactFeed .messageReplyContext {
+  margin-bottom:2px;
+  padding-top:3px;
+  padding-bottom:3px;
+}
+
+@media (max-width:800px) {
+  .topbarActions {
+    gap:6px;
+  }
+  .topSettingsButton {
+    width:34px;
+    padding:0;
+  }
+  .topSettingsButton > span {
+    display:none;
+  }
+  .livePill {
+    padding:7px 9px;
+    font-size:9px;
+  }
+  .chatPreferencesDialog {
+    width:100%;
+    max-height:none;
+    height:100%;
+    border-radius:14px;
+  }
+  .preferencesBody {
+    padding-left:8px;
+    padding-right:8px;
+  }
+  .settingsFooter {
+    position:sticky;
+    bottom:0;
+  }
+  .restoreSettingsButton,
+  .cancelSettingsButton,
+  .saveSettingsButton {
+    padding-left:10px;
+    padding-right:10px;
+    font-size:9.5px;
+  }
+}
+
+@media (max-width:520px) {
+  .settingsFooter {
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .settingsFooter > div {
+    display:grid;
+    grid-template-columns:1fr 1.35fr;
+  }
+  .restoreSettingsButton {
+    align-self:flex-start;
+  }
+}
