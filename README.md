@@ -13,12 +13,14 @@ Web app para reunir mensagens de **Twitch, Kick e YouTube** em um único feed e 
 - YouTube: leitura pelo Live Chat API e envio por `liveChatMessages.insert`.
 - Tokens OAuth guardados em cookies HTTP-only criptografados com AES-256-GCM.
 - Persistência de mensagens em Supabase via REST somente pelo backend.
-- Modo demonstração automático quando o banco ainda não foi configurado.
+- Sem banco configurado, o histórico fica vazio; mensagens reais recebidas ao vivo continuam disponíveis.
 - Layout responsivo para desktop e celular.
 - Configuração pronta para deploy no Render por `render.yaml`.
 - Endpoint de health check em `/api/health`.
 
 ## 1. Banco de dados
+
+O redesign Stitch, o mapeamento das integrações e os comandos de validação local estão documentados em [docs/redesign-stitch.md](docs/redesign-stitch.md).
 
 Crie um projeto no Supabase, abra o SQL Editor e execute `sql/schema.sql`.
 
