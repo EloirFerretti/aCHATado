@@ -2275,12 +2275,16 @@ export default function Home() {
     return messageModerationRole(message) === null;
   }
 
-  function openUserProfile(message: Message) {
+  function openUserProfileTarget(target: UserProfileTarget) {
     setModerationFeedback(null);
     setProfilePosition({ x: 0, y: 0 });
     setProfileDragging(false);
     profileDragRef.current = null;
-    setProfileOpen({
+    setProfileOpen(target);
+  }
+
+  function openUserProfile(message: Message) {
+    openUserProfileTarget({
       platform: message.platform,
       authorId: message.author_id ? String(message.author_id) : null,
       authorName: message.author_name,
@@ -2288,6 +2292,139 @@ export default function Home() {
       authorColor: message.author_color || null,
       profileUrl: profileUrl(message),
     });
+  }
+
+  function normalizedMentionName(value: unknown) {
+    return String(value || "")
+      .trim()
+      .replace(/^@/, "")
+      .toLocaleLowerCase();
+  }
+
+  function messageMentionAliases(message: Message) {
+    const aliases = [
+      message.author_name,
+      message.platform === "twitch"
+        ? message.raw?.chatter_user_login
+        : null,
+      message.platform === "twitch"
+        ? message.raw?.chatter_user_name
+        : null,
+      message.platform === "kick"
+        ? message.raw?.sender?.username
+        : null,
+      message.platform === "kick"
+        ? message.raw?.sender?.slug
+        : null,
+      message.platform === "youtube"
+        ? message.raw?.authorDetails?.displayName
+        : null,
+      message.platform === "youtube"
+        ? message.raw?.author_details?.display_name
+        : null,
+    ]
+      .map(normalizedMentionName)
+      .filter(Boolean);
+
+    return new Set(aliases);
+  }
+
+  function mentionProfileUrl(
+    platform: Platform,
+    userName: string,
+    authorId?: string | null,
+  ) {
+    const cleanName = userName.trim().replace(/^@/, "");
+    if (platform === "twitch") {
+      return cleanName
+        ? `https://www.twitch.tv/${encodeURIComponent(cleanName.toLowerCase())}`
+        : null;
+    }
+    if (platform === "kick") {
+      return cleanName
+        ? `https://kick.com/${encodeURIComponent(cleanName)}`
+        : null;
+    }
+    const cleanId = String(authorId || "").trim();
+    return cleanId
+      ? `https://www.youtube.com/channel/${encodeURIComponent(cleanId)}`
+      : null;
+  }
+
+  function resolveMentionTarget(
+    platform: Platform,
+    userName: string,
+    verified?: {
+      authorId?: string | null;
+      authorName?: string | null;
+    },
+  ): UserProfileTarget | null {
+    const normalized = normalizedMentionName(userName);
+    if (!normalized) return null;
+
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate.platform !== platform) continue;
+      if (!messageMentionAliases(candidate).has(normalized)) continue;
+
+      return {
+        platform,
+        authorId: candidate.author_id ? String(candidate.author_id) : null,
+        authorName: candidate.author_name,
+        authorAvatar: messageAvatarUrl(candidate),
+        authorColor: candidate.author_color || null,
+        profileUrl: profileUrl(candidate),
+      };
+    }
+
+    const connectedName = normalizedMentionName(auth[platform]?.userName);
+    if (connectedName && connectedName === normalized) {
+      const authorId = String(auth[platform]?.userId || "").trim() || null;
+      return {
+        platform,
+        authorId,
+        authorName: String(auth[platform]?.userName || userName).replace(/^@/, ""),
+        authorAvatar: auth[platform]?.avatar || null,
+        authorColor: null,
+        profileUrl: mentionProfileUrl(platform, userName, authorId),
+      };
+    }
+
+    const channel = channels[platform];
+    const channelAliases = [
+      channel?.channelName,
+      channelInputs[platform],
+      channel?.input,
+    ]
+      .map(normalizedMentionName)
+      .filter(Boolean);
+    if (channel && channelAliases.includes(normalized)) {
+      return {
+        platform,
+        authorId: channel.channelId || null,
+        authorName: channel.channelName || userName.replace(/^@/, ""),
+        authorAvatar: channel.avatar || null,
+        authorColor: null,
+        profileUrl: mentionProfileUrl(platform, userName, channel.channelId),
+      };
+    }
+
+    if (verified?.authorId || verified?.authorName) {
+      const authorId = String(verified.authorId || "").trim() || null;
+      const authorName = String(verified.authorName || userName)
+        .trim()
+        .replace(/^@/, "");
+      return {
+        platform,
+        authorId,
+        authorName,
+        authorAvatar: null,
+        authorColor: null,
+        profileUrl: mentionProfileUrl(platform, userName, authorId),
+      };
+    }
+
+    return null;
   }
 
   function beginReply(message: Message) {
@@ -3312,7 +3449,70 @@ export default function Home() {
     return new RegExp("(" + escaped.join("|") + ")", "g");
   }, [youtubeEmotes]);
 
-  function renderClickableText(textValue: string, keyPrefix: string) {
+  function renderMentionButton(
+    label: string,
+    target: UserProfileTarget,
+    key: string,
+  ) {
+    return (
+      <button
+        type="button"
+        key={key}
+        className={`chatMention ${target.platform}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openUserProfileTarget(target);
+        }}
+        title={`Abrir perfil de ${target.authorName}`}
+        aria-label={`Abrir perfil de ${target.authorName}`}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  function renderMentionsInText(
+    textValue: string,
+    message: Message,
+    keyPrefix: string,
+  ) {
+    const parts: any[] = [];
+    const pattern = /@([a-zA-Z0-9_][a-zA-Z0-9_.-]{1,38})/g;
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(textValue)) !== null) {
+      const previousCharacter = match.index > 0 ? textValue[match.index - 1] : "";
+      if (previousCharacter && /[a-zA-Z0-9._%+-]/.test(previousCharacter)) {
+        continue;
+      }
+
+      const target = resolveMentionTarget(message.platform, match[1]);
+      if (!target) continue;
+
+      if (match.index > cursor) {
+        parts.push(textValue.slice(cursor, match.index));
+      }
+      parts.push(
+        renderMentionButton(
+          match[0],
+          target,
+          `${keyPrefix}-mention-${match.index}`,
+        ),
+      );
+      cursor = pattern.lastIndex;
+    }
+
+    if (cursor < textValue.length) parts.push(textValue.slice(cursor));
+    return parts.length ? parts : textValue;
+  }
+
+  function renderClickableText(
+    textValue: string,
+    keyPrefix: string,
+    message: Message,
+  ) {
     const parts: any[] = [];
     let cursor = 0;
     let match: RegExpExecArray | null;
@@ -3320,7 +3520,13 @@ export default function Home() {
 
     while ((match = pattern.exec(textValue)) !== null) {
       if (match.index > cursor) {
-        parts.push(textValue.slice(cursor, match.index));
+        parts.push(
+          renderMentionsInText(
+            textValue.slice(cursor, match.index),
+            message,
+            `${keyPrefix}-before-${match.index}`,
+          ),
+        );
       }
 
       const { link, trailing } = trimChatLinkPunctuation(match[0]);
@@ -3339,17 +3545,41 @@ export default function Home() {
           </a>,
         );
       }
-      if (trailing) parts.push(trailing);
+      if (trailing) {
+        parts.push(
+          renderMentionsInText(
+            trailing,
+            message,
+            `${keyPrefix}-trailing-${match.index}`,
+          ),
+        );
+      }
       cursor = pattern.lastIndex;
     }
 
-    if (cursor < textValue.length) parts.push(textValue.slice(cursor));
+    if (cursor < textValue.length) {
+      parts.push(
+        renderMentionsInText(
+          textValue.slice(cursor),
+          message,
+          `${keyPrefix}-after`,
+        ),
+      );
+    }
     return parts.length ? parts : textValue;
   }
 
-  function renderThirdPartyTwitchText(textValue: string, messageId: string, prefix: string) {
+  function renderThirdPartyTwitchText(
+    textValue: string,
+    message: Message,
+    prefix: string,
+  ) {
     if (!Object.keys(thirdPartyEmotes).length) {
-      return renderClickableText(textValue, `${messageId}-${prefix}`);
+      return renderClickableText(
+        textValue,
+        `${message.platform_message_id}-${prefix}`,
+        message,
+      );
     }
 
     return textValue.split(/(\s+)/).map((part, index) => {
@@ -3357,12 +3587,13 @@ export default function Home() {
       if (!emote) {
         return renderClickableText(
           part,
-          `${messageId}-${prefix}-text-${index}`,
+          `${message.platform_message_id}-${prefix}-text-${index}`,
+          message,
         );
       }
 
       return interactiveChatEmote({
-        key: `${messageId}-${prefix}-third-${index}`,
+        key: `${message.platform_message_id}-${prefix}-third-${index}`,
         code: part,
         url: emote.url,
         provider: emote.provider,
@@ -3379,7 +3610,7 @@ export default function Home() {
       const source = stripTwitchReplyMention(message, message.message);
       return renderThirdPartyTwitchText(
         shouldMaskLinks(message) ? maskUntrustedLinks(source) : source,
-        message.platform_message_id,
+        message,
         "fallback",
       );
     }
@@ -3446,13 +3677,38 @@ export default function Home() {
         });
       }
 
+      if (fragment?.type === "mention" && fragment?.mention) {
+        const mentionName = String(
+          fragment.mention.user_login ||
+            fragment.mention.user_name ||
+            fragment.text ||
+            "",
+        )
+          .trim()
+          .replace(/^@/, "");
+        const target = resolveMentionTarget("twitch", mentionName, {
+          authorId: fragment.mention.user_id || null,
+          authorName:
+            fragment.mention.user_name ||
+            fragment.mention.user_login ||
+            mentionName,
+        });
+        if (target) {
+          return renderMentionButton(
+            String(fragment.text || `@${mentionName}`),
+            target,
+            `${message.platform_message_id}-tw-mention-${index}`,
+          );
+        }
+      }
+
       return (
         <span key={`${message.platform_message_id}-tw-text-${index}`}>
           {renderThirdPartyTwitchText(
             shouldMaskLinks(message)
               ? maskUntrustedLinks(String(fragment?.text || ""))
               : String(fragment?.text || ""),
-            message.platform_message_id,
+            message,
             `fragment-${index}`,
           )}
         </span>
@@ -3472,6 +3728,7 @@ export default function Home() {
       return renderClickableText(
         fallback,
         `${message.platform_message_id}-kick-fallback`,
+        message,
       );
     }
 
@@ -3487,6 +3744,7 @@ export default function Home() {
           renderClickableText(
             source.slice(cursor, match.index),
             `${message.platform_message_id}-kick-text-${index}`,
+            message,
           ),
         );
       }
@@ -3514,12 +3772,17 @@ export default function Home() {
         renderClickableText(
           source.slice(cursor),
           `${message.platform_message_id}-kick-text-${index}`,
+          message,
         ),
       );
     }
     return parts.length
       ? parts
-      : renderClickableText(message.message, `${message.platform_message_id}-kick-fallback`);
+      : renderClickableText(
+          message.message,
+          `${message.platform_message_id}-kick-fallback`,
+          message,
+        );
   }
 
   function kickSubscriberBadgeForCount(count: number | null) {
@@ -3817,6 +4080,7 @@ export default function Home() {
       return renderClickableText(
         source,
         `${message.platform_message_id}-yt-text`,
+        message,
       );
     }
 
@@ -3826,6 +4090,7 @@ export default function Home() {
         return renderClickableText(
           part,
           `${message.platform_message_id}-yt-text-${index}`,
+          message,
         );
       }
 
