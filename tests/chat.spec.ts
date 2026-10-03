@@ -62,7 +62,7 @@ const messages = [
     channel_id: "kick-channel",
     author_id: "bruno",
     author_name: "Bruno",
-    author_avatar: image,
+    author_avatar: null,
     author_color: "#53fc18",
     message: "@Viewer KickSmile",
     created_at: "2026-10-03T18:12:00Z",
@@ -70,7 +70,10 @@ const messages = [
       { type: "level", metadata: { level: 42 } },
       { type: "sub_gifter", count: 250 },
     ],
-    raw: { content: "@Viewer [emote:123:KickSmile]" },
+    raw: {
+      content: "@Viewer [emote:123:KickSmile]",
+      sender: { profile_picture: image },
+    },
   },
   {
     id: 3,
@@ -79,11 +82,14 @@ const messages = [
     channel_id: "youtube-channel",
     author_id: "carol",
     author_name: "Carol",
-    author_avatar: image,
+    author_avatar: null,
     author_color: "#ff4e45",
     message: "Olá :yt:",
     created_at: "2026-10-03T18:13:00Z",
     badges: ["moderator"],
+    raw: {
+      authorDetails: { profileImageUrl: image },
+    },
   },
 ];
 const thirdParty = Object.fromEntries(
@@ -225,6 +231,14 @@ test("unified feed preserves colors, avatars, real badge formats and all emote p
 }) => {
   const { errors } = await setup(page);
   await expect(page.locator(".message .avatarProfileLink img")).toHaveCount(3);
+  await expect(page.locator(".message .avatarProfileLink img").first()).toBeVisible();
+  await expect(page.locator(".message.kick .avatarProfileLink img")).toHaveAttribute(
+    "src",
+    image,
+  );
+  await expect(
+    page.locator(".message.youtube .avatarProfileLink img"),
+  ).toHaveAttribute("src", image);
   await expect(page.locator('.message [title="Nível 42"]')).toBeVisible();
   await expect(
     page.locator('.message [title="Sub Gifter · 250+ sub gifts"]'),

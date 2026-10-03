@@ -519,8 +519,13 @@ export function normalizeAvatarUrl(value: unknown): string | null {
       "profile_picture",
       "profilePic",
       "profilePicture",
+      "profileImageUrl",
+      "profile_image_url",
       "avatar",
       "avatar_url",
+      "thumbnail",
+      "thumbnailUrl",
+      "thumbnail_url",
     ]) {
       const normalized = normalizeAvatarUrl(candidate[key]);
       if (normalized) return normalized;
@@ -557,17 +562,34 @@ export function kickAvatarFromRaw(raw: any) {
 }
 
 export function messageEmbeddedAvatar(message: Message) {
+  const direct = normalizeAvatarUrl(message.author_avatar);
+  if (direct) return direct;
+
   if (message.platform === "kick") {
+    return kickAvatarFromRaw(message.raw);
+  }
+
+  if (message.platform === "youtube") {
     return (
-      normalizeAvatarUrl(message.author_avatar) ||
-      kickAvatarFromRaw(message.raw)
+      normalizeAvatarUrl(message.raw?.authorDetails?.profileImageUrl) ||
+      normalizeAvatarUrl(message.raw?.author_details?.profile_image_url) ||
+      normalizeAvatarUrl(message.raw?.author?.profileImageUrl) ||
+      normalizeAvatarUrl(message.raw?.author?.profile_image_url) ||
+      null
     );
   }
 
-  return typeof message.author_avatar === "string" &&
-    message.author_avatar.trim()
-    ? message.author_avatar.trim()
-    : null;
+  if (message.platform === "twitch") {
+    return (
+      normalizeAvatarUrl(message.raw?.profile_image_url) ||
+      normalizeAvatarUrl(message.raw?.profileImageUrl) ||
+      normalizeAvatarUrl(message.raw?.user?.profile_image_url) ||
+      normalizeAvatarUrl(message.raw?.user?.profileImageUrl) ||
+      null
+    );
+  }
+
+  return null;
 }
 
 export function mergedAuthorAvatar(previous: Message, incoming: Message) {
