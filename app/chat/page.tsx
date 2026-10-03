@@ -3634,30 +3634,6 @@ export default function Home() {
     return message.message;
   }
 
-  function renderReplyMention(message: Message) {
-    const reply = messageReplyInfo(message);
-    if (!reply?.authorName) return null;
-
-    const mention = `@${reply.authorName.replace(/^@/, "")}`;
-    const plainText = String(message.message || "").trimStart();
-    if (
-      plainText.toLocaleLowerCase().startsWith(
-        mention.toLocaleLowerCase(),
-      )
-    ) {
-      return null;
-    }
-
-    return (
-      <span
-        className={`replyMention ${message.platform}`}
-        title={`Resposta para ${reply.authorName}`}
-      >
-        {mention}
-      </span>
-    );
-  }
-
   function renderSidebarContent() {
     return (
       <>
@@ -4047,7 +4023,6 @@ export default function Home() {
                       )}
                   </div>
                   <p className="chatText">
-                    {renderReplyMention(m)}
                     {renderMessageText(m)}
                   </p>
                 </div>
@@ -4457,7 +4432,6 @@ export default function Home() {
                       <time>{timeLabel(message.created_at)}</time>
                     )}
                     <span className="userProfileMessageText">
-                      {renderReplyMention(message)}
                       {renderMessageText(message)}
                     </span>
                   </button>
