@@ -3388,10 +3388,6 @@ export default function Home() {
                   </button>
                 ))}
               </div>
-              <div className="status">
-                <span />
-                {activeChannelCount ? "sincronizando" : "aguardando canais"}
-              </div>
               <button
                 type="button"
                 className="chatUtilityButton clearChatButton"
