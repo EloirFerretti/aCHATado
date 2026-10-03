@@ -1013,6 +1013,7 @@ body:has(.overlayMode),
   height: 15px;
   right: -5px;
   bottom: -5px;
+  z-index: 2;
   border-radius: 50%;
   border: 1px solid #191b23;
   font-size: 9px;

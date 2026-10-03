@@ -241,6 +241,10 @@ test("unified feed preserves colors, avatars, real badge formats and all emote p
   const { errors } = await setup(page);
   await expect(page.locator(".message .avatarProfileLink img")).toHaveCount(3);
   await expect(page.locator(".message .avatarProfileLink img").first()).toBeVisible();
+  await expect(page.locator(".message.twitch .miniPlatform")).toHaveCSS(
+    "z-index",
+    "2",
+  );
   await expect(page.locator(".message.kick .avatarProfileLink img")).toHaveAttribute(
     "src",
     image,
