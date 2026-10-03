@@ -982,11 +982,6 @@ export default function Home() {
         }
 
         const existing = next[index];
-        const existingV2 = Array.isArray(
-          existing.raw?.sender?.identity?.badges_v2,
-        )
-          ? existing.raw.sender.identity.badges_v2
-          : [];
         const incomingV2 = Array.isArray(
           message.raw?.sender?.identity?.badges_v2,
         )
@@ -1352,11 +1347,6 @@ export default function Home() {
 
           if (index >= 0) {
             const previous = prev[index];
-            const previousV2 = Array.isArray(
-              previous.raw?.sender?.identity?.badges_v2,
-            )
-              ? previous.raw.sender.identity.badges_v2
-              : [];
             const incomingV2 = Array.isArray(
               incoming.raw?.sender?.identity?.badges_v2,
             )
