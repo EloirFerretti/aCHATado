@@ -2296,6 +2296,9 @@ export default function Home() {
           platform: selected,
           channelId: selectedTarget.channelId,
         });
+        if (selectedTarget.channelName) {
+          params.set("channelName", selectedTarget.channelName);
+        }
         if (selectedTarget.videoId) params.set("videoId", selectedTarget.videoId);
 
         const response = await fetch(`/api/emote-picker?${params.toString()}`, {
