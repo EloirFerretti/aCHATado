@@ -72,7 +72,12 @@ const messages = [
     ],
     raw: {
       content: "@Viewer [emote:123:KickSmile]",
+      type: "reply",
       sender: { profile_picture: image },
+      metadata: {
+        original_sender: { username: "KickOriginal" },
+        original_message: { content: "Mensagem original citada da Kick" },
+      },
     },
   },
   {
@@ -267,6 +272,12 @@ test("unified feed preserves colors, avatars, real badge formats and all emote p
   await expect(
     page.locator(".message.kick .authorProfileButton strong"),
   ).toHaveCSS("color", "rgb(83, 252, 24)");
+  await expect(page.locator(".message.kick .messageReplyContext")).toContainText(
+    "KickOriginal",
+  );
+  await expect(page.locator(".message.kick .messageReplyContext")).toContainText(
+    "Mensagem original citada da Kick",
+  );
   await page.getByRole("button", { name: "Kick 1", exact: true }).click();
   await expect(page.locator("article.message")).toHaveCount(1);
   await page.getByRole("button", { name: /Todas 3/ }).click();

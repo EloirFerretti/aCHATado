@@ -753,33 +753,72 @@ export function messageReplyInfo(message: Message): ReplyTarget | null {
       raw?.reply ||
       null;
 
+    const metadata =
+      raw?.metadata ||
+      raw?.message?.metadata ||
+      raw?.data?.metadata ||
+      null;
+    const originalSender =
+      metadata?.original_sender ||
+      metadata?.originalSender ||
+      {};
+    const originalMessage =
+      metadata?.original_message ||
+      metadata?.originalMessage ||
+      {};
+
     const messageId = String(
       reply?.message_id ||
         reply?.messageId ||
         reply?.id ||
+        originalMessage?.message_id ||
+        originalMessage?.messageId ||
+        originalMessage?.id ||
+        metadata?.original_message_id ||
+        metadata?.originalMessageId ||
         raw?.reply_to_message_id ||
         raw?.replyToMessageId ||
         "",
     ).trim();
 
-    if (!messageId) return null;
+    const citedAuthor = String(
+      (reply?.sender || reply?.user || reply?.author || {})?.username ||
+        (reply?.sender || reply?.user || reply?.author || {})?.channel_slug ||
+        (reply?.sender || reply?.user || reply?.author || {})?.slug ||
+        reply?.username ||
+        reply?.author_name ||
+        originalSender?.username ||
+        originalSender?.channel_slug ||
+        originalSender?.slug ||
+        "",
+    ).trim();
 
-    const sender = reply?.sender || reply?.user || reply?.author || {};
+    const citedMessage = cleanReplyPreview(
+      reply?.content ||
+        reply?.message ||
+        reply?.body ||
+        reply?.text ||
+        originalMessage?.content ||
+        originalMessage?.message ||
+        originalMessage?.body ||
+        originalMessage?.text ||
+        "",
+    );
+
+    const pusherReply =
+      String(raw?.type || "")
+        .trim()
+        .toLocaleLowerCase() === "reply" &&
+      Boolean(citedAuthor || citedMessage || messageId);
+
+    if (!reply && !pusherReply) return null;
+    if (!messageId && !citedAuthor && !citedMessage) return null;
 
     return {
       platform: "kick",
       messageId,
-      authorName: String(
-        sender?.username ||
-          sender?.channel_slug ||
-          sender?.slug ||
-          reply?.username ||
-          reply?.author_name ||
-          "Usuário da Kick",
-      ),
-      message: cleanReplyPreview(
-        reply?.content || reply?.message || reply?.body || reply?.text || "",
-      ),
+      authorName: citedAuthor || "Usuário da Kick",
+      message: citedMessage,
       channelId: message.channel_id || null,
     };
   }
