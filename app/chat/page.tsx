@@ -158,12 +158,12 @@ const emptyAuth: AuthInfo = {
 };
 const emptyInputs: ChannelInputs = { twitch: "", kick: "", youtube: "" };
 const defaultChatSettings: ChatSettings = {
-  compactMode: true,
+  compactMode: false,
   showPlatformBadges: true,
   feedFontSize: "medium",
   showTimestamps: true,
   hideBots: false,
-  blockLinks: true,
+  blockLinks: false,
   newMessageSound: false,
   mentionSound: true,
 };
