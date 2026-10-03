@@ -113,6 +113,7 @@ type PickerCategory =
   | "official"
   | "kick-emotes"
   | "kick-global"
+  | "kick-collectibles"
   | "thirdparty";
 type PickerEmote = {
   id?: string;
@@ -161,6 +162,7 @@ const pickerCategoryLabels: Record<PickerCategory, string> = {
   official: "Oficiais",
   "kick-emotes": "Emotes",
   "kick-global": "Global",
+  "kick-collectibles": "Colecionáveis",
   thirdparty: "Terceiros",
 };
 
@@ -183,6 +185,7 @@ function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
       .toLowerCase();
     const isGlobal = setLabel.startsWith("global");
     const isEmoji = setLabel.startsWith("emoji");
+    const isCollectibleSet = setLabel.startsWith("collectible");
 
     const list = Array.isArray(set.emotes) ? set.emotes : [];
     for (const rawEmote of list) {
@@ -201,6 +204,8 @@ function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
           : "";
       const name = typeof emote.name === "string" ? emote.name.trim() : "";
       if (!id || !name) continue;
+      const isCollectibleEmote = name.toLowerCase().startsWith("collectibles");
+      const isCollectible = isCollectibleSet || isCollectibleEmote;
 
       const requiresSubscription = Boolean(
         emote.subscribers_only ||
@@ -214,20 +219,24 @@ function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
         name,
         url: `https://files.kick.com/emotes/${encodeURIComponent(id)}/fullsize`,
         provider: "kick",
-        category: isEmoji
-          ? "kick-emotes"
-          : isGlobal
-            ? "kick-global"
-            : "channel",
-        scope: isGlobal || isEmoji ? "global" : "channel",
-        native: true,
-        emoteType: requiresSubscription
-          ? "subscriber"
+        category: isCollectible
+          ? "kick-collectibles"
           : isEmoji
-            ? "emoji"
+            ? "kick-emotes"
             : isGlobal
-              ? "global"
+              ? "kick-global"
               : "channel",
+        scope: isGlobal || isEmoji || isCollectible ? "global" : "channel",
+        native: true,
+        emoteType: isCollectible
+          ? "collectible"
+          : requiresSubscription
+            ? "subscriber"
+            : isEmoji
+              ? "emoji"
+              : isGlobal
+                ? "global"
+                : "channel",
         requiresSubscription,
       });
     }
@@ -238,8 +247,9 @@ function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
     channel: 1,
     "kick-emotes": 2,
     "kick-global": 3,
-    official: 4,
-    thirdparty: 5,
+    "kick-collectibles": 4,
+    official: 5,
+    thirdparty: 6,
   };
 
   return [...found.values()].sort(
@@ -2402,7 +2412,7 @@ export default function Home() {
   const pickerGroups = useMemo(() => {
     const categoryOrder: PickerCategory[] =
       selected === "kick"
-        ? ["user", "channel", "kick-emotes", "kick-global", "official"]
+        ? ["user", "channel", "kick-emotes", "kick-global", "kick-collectibles", "official"]
         : ["user", "channel", "official"];
 
     const groups: Array<{
