@@ -4001,7 +4001,7 @@ export default function Home() {
                     );
                   })()}
                   <div className="meta">
-                    {renderUserBadges(m)}
+                    {chatSettings.showPlatformBadges ? renderUserBadges(m) : null}
                     <button
                       type="button"
                       className="authorProfileButton"
@@ -4348,7 +4348,7 @@ export default function Home() {
                   </span>
                 )}
                 <div className="userProfileNameRow">
-                  {profileRecentMessages[0]
+                  {chatSettings.showPlatformBadges && profileRecentMessages[0]
                     ? renderUserBadges(profileRecentMessages[0])
                     : null}
                   <h2
