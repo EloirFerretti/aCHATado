@@ -2508,6 +2508,10 @@ body:has(.overlayMode),
   font-size: 10px;
   line-height: 15px;
 }
+.chatShell .userProfileMessageText .chatEmote {
+  margin-top: 0;
+  margin-bottom: 0;
+}
 .chatShell .jumpLatestButton {
   bottom: 12px;
   border-color: #c0c1ff4d;

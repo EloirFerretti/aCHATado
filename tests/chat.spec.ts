@@ -537,6 +537,19 @@ test("mentions, profiles, reply payload, pause and clear preserve application be
     "display",
     "grid",
   );
+  const profileMessage = profileDialog.locator(".userProfileMessage").first();
+  const profileEmote = profileMessage.locator(".chatEmote").first();
+  await expect(profileEmote).toBeVisible();
+  const [profileMessageBox, profileEmoteBox] = await Promise.all([
+    profileMessage.boundingBox(),
+    profileEmote.boundingBox(),
+  ]);
+  expect(profileMessageBox).not.toBeNull();
+  expect(profileEmoteBox).not.toBeNull();
+  expect(profileEmoteBox!.y).toBeGreaterThanOrEqual(profileMessageBox!.y);
+  expect(profileEmoteBox!.y + profileEmoteBox!.height).toBeLessThanOrEqual(
+    profileMessageBox!.y + profileMessageBox!.height,
+  );
   await page
     .getByRole("button", { name: "Fechar perfil", exact: true })
     .click();
