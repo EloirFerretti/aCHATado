@@ -67,6 +67,17 @@ type UserProfileTarget = {
 
 type ModerationAction = "ban" | "timeout" | "unban" | "delete_message";
 type ModerationRole = "owner" | "moderator" | "none" | "unknown";
+type FeedFontSize = "small" | "medium" | "large";
+type ChatSettings = {
+  compactMode: boolean;
+  showPlatformBadges: boolean;
+  feedFontSize: FeedFontSize;
+  showTimestamps: boolean;
+  hideBots: boolean;
+  blockLinks: boolean;
+  newMessageSound: boolean;
+  mentionSound: boolean;
+};
 type ResolvedChannel = {
   platform: Platform;
   input: string;
@@ -146,6 +157,117 @@ const emptyAuth: AuthInfo = {
   youtube: { connected: false, configured: false },
 };
 const emptyInputs: ChannelInputs = { twitch: "", kick: "", youtube: "" };
+const defaultChatSettings: ChatSettings = {
+  compactMode: true,
+  showPlatformBadges: true,
+  feedFontSize: "medium",
+  showTimestamps: true,
+  hideBots: false,
+  blockLinks: true,
+  newMessageSound: false,
+  mentionSound: true,
+};
+const CHAT_SETTINGS_STORAGE_KEY = "achatado_chat_settings";
+
+function normalizeChatSettings(value: unknown): ChatSettings {
+  const raw =
+    value && typeof value === "object"
+      ? (value as Partial<ChatSettings>)
+      : {};
+  const feedFontSize: FeedFontSize =
+    raw.feedFontSize === "small" ||
+    raw.feedFontSize === "medium" ||
+    raw.feedFontSize === "large"
+      ? raw.feedFontSize
+      : defaultChatSettings.feedFontSize;
+
+  return {
+    compactMode:
+      typeof raw.compactMode === "boolean"
+        ? raw.compactMode
+        : defaultChatSettings.compactMode,
+    showPlatformBadges:
+      typeof raw.showPlatformBadges === "boolean"
+        ? raw.showPlatformBadges
+        : defaultChatSettings.showPlatformBadges,
+    feedFontSize,
+    showTimestamps:
+      typeof raw.showTimestamps === "boolean"
+        ? raw.showTimestamps
+        : defaultChatSettings.showTimestamps,
+    hideBots:
+      typeof raw.hideBots === "boolean"
+        ? raw.hideBots
+        : defaultChatSettings.hideBots,
+    blockLinks:
+      typeof raw.blockLinks === "boolean"
+        ? raw.blockLinks
+        : defaultChatSettings.blockLinks,
+    newMessageSound:
+      typeof raw.newMessageSound === "boolean"
+        ? raw.newMessageSound
+        : defaultChatSettings.newMessageSound,
+    mentionSound:
+      typeof raw.mentionSound === "boolean"
+        ? raw.mentionSound
+        : defaultChatSettings.mentionSound,
+  };
+}
+
+function messageBadgeNames(message: Message) {
+  return [
+    ...(message.badges || []).map((badge) =>
+      String(badge.set_id || badge.setId || badge.type || badge.name || ""),
+    ),
+    ...(Array.isArray(message.raw?.sender?.identity?.badges)
+      ? message.raw.sender.identity.badges.map((badge: any) =>
+          String(badge?.type || badge?.name || badge?.text || ""),
+        )
+      : []),
+    ...(Array.isArray(message.raw?.sender?.identity?.badges_v2)
+      ? message.raw.sender.identity.badges_v2.map((badge: any) =>
+          String(badge?.type || badge?.name || badge?.text || ""),
+        )
+      : []),
+  ]
+    .map((name) => name.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
+    .filter(Boolean);
+}
+
+function isBotMessage(message: Message) {
+  if (
+    message.raw?.sender?.is_bot === true ||
+    message.raw?.sender?.isBot === true ||
+    message.raw?.authorDetails?.isBot === true ||
+    message.raw?.author_details?.is_bot === true
+  ) {
+    return true;
+  }
+
+  const rawType = String(
+    message.raw?.type ||
+      message.raw?.message_type ||
+      message.raw?.messageType ||
+      "",
+  ).toLowerCase();
+
+  return (
+    messageBadgeNames(message).some((name) =>
+      ["bot", "chatbot", "automod"].includes(name),
+    ) ||
+    rawType === "bot" ||
+    rawType === "system" ||
+    rawType === "notice"
+  );
+}
+
+function maskUntrustedLinks(value: string) {
+  return value.replace(
+    /(?:https?:\/\/|www\.)[^\s<]+|\b[a-z0-9][a-z0-9.-]*\.(?:com|net|org|gg|tv|io|co|me|live|app|dev|br)(?:\/[^\s<]*)?/gi,
+    "[link oculto]",
+  );
+}
+
 const pickerProviderLabels: Record<PickerProvider, string> = {
   all: "Todos",
   twitch: "Twitch",
@@ -467,27 +589,7 @@ function messageModerationRole(message: Message): "owner" | "moderator" | null {
     return null;
   }
 
-  const badgeNames = [
-    ...(message.badges || []).map((badge) =>
-      String(badge.set_id || badge.setId || badge.type || badge.name || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]/g, ""),
-    ),
-    ...(Array.isArray(message.raw?.sender?.identity?.badges)
-      ? message.raw.sender.identity.badges.map((badge: any) =>
-          String(badge?.type || badge?.name || badge?.text || "")
-            .toLowerCase()
-            .replace(/[^a-z0-9_-]/g, ""),
-        )
-      : []),
-    ...(Array.isArray(message.raw?.sender?.identity?.badges_v2)
-      ? message.raw.sender.identity.badges_v2.map((badge: any) =>
-          String(badge?.type || badge?.name || badge?.text || "")
-            .toLowerCase()
-            .replace(/[^a-z0-9_-]/g, ""),
-        )
-      : []),
-  ].filter(Boolean);
+  const badgeNames = messageBadgeNames(message);
 
   if (
     badgeNames.some((name) =>
@@ -527,6 +629,8 @@ export default function Home() {
   const [pickerScopeUpgradeRequired, setPickerScopeUpgradeRequired] = useState(false);
   const [popupMode, setPopupMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chatSettings, setChatSettings] = useState<ChatSettings>(defaultChatSettings);
+  const [settingsDraft, setSettingsDraft] = useState<ChatSettings>(defaultChatSettings);
   const [profileOpen, setProfileOpen] = useState<UserProfileTarget | null>(null);
   const [profilePosition, setProfilePosition] = useState({ x: 0, y: 0 });
   const [profileDragging, setProfileDragging] = useState(false);
@@ -569,6 +673,9 @@ export default function Home() {
   const autoScrollFrameRef = useRef<number | null>(null);
   const autoScrollReleaseRef = useRef<number | null>(null);
   const previousMessageCountRef = useRef(0);
+  const soundInitializedRef = useRef(false);
+  const lastSoundMessageKeyRef = useRef("");
+  const audioContextRef = useRef<AudioContext | null>(null);
   const clickedComposerEmotesRef = useRef<Record<Platform, Map<string, PickerEmote>>>({
     twitch: new Map(),
     kick: new Map(),
@@ -874,6 +981,19 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_SETTINGS_STORAGE_KEY);
+      if (saved) {
+        const parsed = normalizeChatSettings(JSON.parse(saved));
+        setChatSettings(parsed);
+        setSettingsDraft(parsed);
+      }
+    } catch {
+      // Mantém as configurações padrão se o armazenamento estiver inválido.
+    }
+  }, []);
+
+  useEffect(() => {
     function syncFromStorage(event: StorageEvent) {
       try {
         if (event.key === "achatado_channel_inputs" && event.newValue) {
@@ -881,6 +1001,13 @@ export default function Home() {
         }
         if (event.key === "achatado_channels") {
           setChannels(event.newValue ? JSON.parse(event.newValue) : {});
+        }
+        if (event.key === CHAT_SETTINGS_STORAGE_KEY) {
+          const next = event.newValue
+            ? normalizeChatSettings(JSON.parse(event.newValue))
+            : defaultChatSettings;
+          setChatSettings(next);
+          setSettingsDraft(next);
         }
       } catch {
         // Ignora sincronizações inválidas.
@@ -894,11 +1021,14 @@ export default function Home() {
   useEffect(() => {
     if (!settingsOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSettingsOpen(false);
+      if (event.key === "Escape") {
+        setSettingsDraft(chatSettings);
+        setSettingsOpen(false);
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [settingsOpen]);
+  }, [settingsOpen, chatSettings]);
 
   useEffect(() => {
     if (!profileOpen) return;
@@ -1653,13 +1783,11 @@ export default function Home() {
     }
   }
 
-  const visibleMessageCount =
-    filter === "all"
-      ? messages.length
-      : messages.reduce(
-          (count, message) => count + (message.platform === filter ? 1 : 0),
-          0,
-        );
+  const visibleMessageCount = messages.reduce((count, message) => {
+    if (filter !== "all" && message.platform !== filter) return count;
+    if (chatSettings.hideBots && isBotMessage(message)) return count;
+    return count + 1;
+  }, 0);
 
   useEffect(() => {
     const previous = previousMessageCountRef.current;
@@ -1700,9 +1828,48 @@ export default function Home() {
   }, []);
 
   const visible = useMemo(
-    () => messages.filter((m) => filter === "all" || m.platform === filter),
-    [messages, filter],
+    () =>
+      messages.filter(
+        (message) =>
+          (filter === "all" || message.platform === filter) &&
+          (!chatSettings.hideBots || !isBotMessage(message)),
+      ),
+    [messages, filter, chatSettings.hideBots],
   );
+
+  useEffect(() => {
+    if (!ready || !messages.length) return;
+
+    const latest = messages[messages.length - 1];
+    const key = `${latest.platform}:${latest.platform_message_id}`;
+
+    if (!soundInitializedRef.current) {
+      soundInitializedRef.current = true;
+      lastSoundMessageKeyRef.current = key;
+      return;
+    }
+    if (lastSoundMessageKeyRef.current === key) return;
+    lastSoundMessageKeyRef.current = key;
+
+    if (chatSettings.hideBots && isBotMessage(latest)) return;
+
+    const mentioned =
+      chatSettings.mentionSound && messageMentionsConnectedAccount(latest);
+    if (mentioned) {
+      playNotificationTone("mention");
+    } else if (chatSettings.newMessageSound) {
+      playNotificationTone("message");
+    }
+  }, [
+    messages,
+    ready,
+    chatSettings.hideBots,
+    chatSettings.newMessageSound,
+    chatSettings.mentionSound,
+    auth.twitch.userName,
+    auth.kick.userName,
+    auth.youtube.userName,
+  ]);
 
   const knownAuthorAvatars = useMemo(() => {
     const known = new Map<string, string>();
@@ -1764,6 +1931,79 @@ export default function Home() {
   }, [messages, profileOpen]);
 
   const activeChannelCount = platforms.filter((p) => channels[p]?.channelId).length;
+
+  function openSettings() {
+    setSettingsDraft(chatSettings);
+    setSettingsOpen(true);
+  }
+
+  function closeSettings() {
+    setSettingsDraft(chatSettings);
+    setSettingsOpen(false);
+  }
+
+  function saveSettings() {
+    const normalized = normalizeChatSettings(settingsDraft);
+    setChatSettings(normalized);
+    setSettingsDraft(normalized);
+    localStorage.setItem(CHAT_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+    setSettingsOpen(false);
+  }
+
+  function restoreDefaultSettings() {
+    setSettingsDraft({ ...defaultChatSettings });
+  }
+
+  function playNotificationTone(kind: "message" | "mention") {
+    try {
+      const context =
+        audioContextRef.current ||
+        new window.AudioContext();
+      audioContextRef.current = context;
+      if (context.state === "suspended") void context.resume();
+
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const now = context.currentTime;
+      oscillator.type = kind === "mention" ? "sine" : "triangle";
+      oscillator.frequency.setValueAtTime(kind === "mention" ? 880 : 620, now);
+      if (kind === "mention") {
+        oscillator.frequency.exponentialRampToValueAtTime(1180, now + 0.12);
+      }
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(kind === "mention" ? 0.12 : 0.07, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + (kind === "mention" ? 0.24 : 0.13));
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(now);
+      oscillator.stop(now + (kind === "mention" ? 0.25 : 0.14));
+    } catch {
+      // Alguns navegadores bloqueiam áudio até a primeira interação do usuário.
+    }
+  }
+
+  function messageMentionsConnectedAccount(message: Message) {
+    const content = String(message.message || "").toLocaleLowerCase();
+    return platforms.some((platform) => {
+      const userName = String(auth[platform]?.userName || "")
+        .trim()
+        .replace(/^@/, "")
+        .toLocaleLowerCase();
+      if (!userName) return false;
+      return (
+        content.includes(`@${userName}`) ||
+        content.split(/\s+/).some((part) => part.replace(/^@/, "") === userName)
+      );
+    });
+  }
+
+  function shouldMaskLinks(message: Message) {
+    if (!chatSettings.blockLinks) return false;
+    const ownUserId = String(auth[message.platform]?.userId || "").trim();
+    const authorId = String(message.author_id || "").trim();
+    if (ownUserId && authorId && ownUserId === authorId) return false;
+    return messageModerationRole(message) === null;
+  }
 
   function openUserProfile(message: Message) {
     setModerationFeedback(null);
@@ -2824,7 +3064,11 @@ export default function Home() {
   function renderTwitchMessage(message: Message) {
     const fragments = message.raw?.message?.fragments;
     if (!Array.isArray(fragments) || !fragments.length) {
-      return renderThirdPartyTwitchText(message.message, message.platform_message_id, "fallback");
+      return renderThirdPartyTwitchText(
+        shouldMaskLinks(message) ? maskUntrustedLinks(message.message) : message.message,
+        message.platform_message_id,
+        "fallback",
+      );
     }
 
     return fragments.map((fragment: any, index: number) => {
@@ -2862,7 +3106,9 @@ export default function Home() {
       return (
         <span key={`${message.platform_message_id}-tw-text-${index}`}>
           {renderThirdPartyTwitchText(
-            String(fragment?.text || ""),
+            shouldMaskLinks(message)
+              ? maskUntrustedLinks(String(fragment?.text || ""))
+              : String(fragment?.text || ""),
             message.platform_message_id,
             `fragment-${index}`,
           )}
@@ -2872,8 +3118,15 @@ export default function Home() {
   }
 
   function renderKickMessage(message: Message) {
-    const source = typeof message.raw?.content === "string" ? message.raw.content : "";
-    if (!source) return message.message;
+    const rawSource = typeof message.raw?.content === "string" ? message.raw.content : "";
+    const source = shouldMaskLinks(message)
+      ? maskUntrustedLinks(rawSource || message.message)
+      : rawSource;
+    if (!source) {
+      return shouldMaskLinks(message)
+        ? maskUntrustedLinks(message.message)
+        : message.message;
+    }
 
     const parts: any[] = [];
     const regex = /\[emote:([^:\]]+):([^\]]+)\]/g;
@@ -3196,9 +3449,12 @@ export default function Home() {
   }
 
   function renderYouTubeMessage(message: Message) {
-    if (!youtubeEmotePattern) return message.message;
+    const source = shouldMaskLinks(message)
+      ? maskUntrustedLinks(message.message)
+      : message.message;
+    if (!youtubeEmotePattern) return source;
 
-    return message.message.split(youtubeEmotePattern).map((part, index) => {
+    return source.split(youtubeEmotePattern).map((part, index) => {
       const emote = youtubeEmotes[part];
       if (!emote) return part;
 
@@ -3327,7 +3583,9 @@ export default function Home() {
   }
 
   return (
-    <main className={`shell chatShell ${popupMode ? "popupMode" : ""}`}>
+    <main
+      className={`shell chatShell ${popupMode ? "popupMode" : ""} ${chatSettings.compactMode ? "compactFeed" : ""} feedFont-${chatSettings.feedFontSize}`}
+    >
       {!popupMode && <header className="topbar">
         <div className="brand">
           <div className="brandMark"><span>T</span><span>K</span><span>Y</span></div>
@@ -3336,11 +3594,28 @@ export default function Home() {
             <p>Twitch + Kick + YouTube em um só chat</p>
           </div>
         </div>
-        <div className="livePill">
-          <span className="liveDot" />
-          {activeChannelCount
-            ? `${activeChannelCount} ${activeChannelCount === 1 ? "CANAL" : "CANAIS"}`
-            : "CONFIGURAR"}
+        <div className="topbarActions">
+          <button
+            type="button"
+            className="topSettingsButton"
+            onClick={openSettings}
+            aria-label="Abrir configurações do chat"
+            title="Configurações do chat"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h10M18 7h2M4 17h2M10 17h10M4 12h4M12 12h8" />
+              <circle cx="16" cy="7" r="2" />
+              <circle cx="8" cy="17" r="2" />
+              <circle cx="10" cy="12" r="2" />
+            </svg>
+            <span>Configurações</span>
+          </button>
+          <div className="livePill">
+            <span className="liveDot" />
+            {activeChannelCount
+              ? `${activeChannelCount} ${activeChannelCount === 1 ? "CANAL" : "CANAIS"}`
+              : "CONFIGURAR"}
+          </div>
         </div>
       </header>}
 
@@ -3407,7 +3682,7 @@ export default function Home() {
                 <button
                   type="button"
                   className="chatUtilityButton mobileSettingsButton"
-                  onClick={() => setSettingsOpen(true)}
+                  onClick={openSettings}
                   title="Configurações"
                   aria-label="Abrir configurações do chat"
                 >
@@ -3419,7 +3694,7 @@ export default function Home() {
                 <button
                   type="button"
                   className="chatUtilityButton"
-                  onClick={() => setSettingsOpen(true)}
+                  onClick={openSettings}
                   title="Configurações"
                   aria-label="Abrir configurações do chat"
                 >
@@ -3533,7 +3808,7 @@ export default function Home() {
                     );
                   })()}
                   <div className="meta">
-                    {renderUserBadges(m)}
+                    {chatSettings.showPlatformBadges ? renderUserBadges(m) : null}
                     <button
                       type="button"
                       className="authorProfileButton"
@@ -3546,7 +3821,9 @@ export default function Home() {
                       </strong>
                     </button>
                     <span className={`platformLabel ${m.platform}`}>{labels[m.platform]}</span>
-                    <time>{timeLabel(m.created_at)}</time>
+                    {chatSettings.showTimestamps && (
+                      <time>{timeLabel(m.created_at)}</time>
+                    )}
                     {(m.platform === "twitch" || m.platform === "kick") && (
                       <button
                         type="button"
@@ -3869,7 +4146,7 @@ export default function Home() {
                   {labels[profileOpen.platform]}
                 </span>
                 <div className="userProfileNameRow">
-                  {profileRecentMessages[0]
+                  {chatSettings.showPlatformBadges && profileRecentMessages[0]
                     ? renderUserBadges(profileRecentMessages[0])
                     : null}
                   <h2
@@ -3974,7 +4251,9 @@ export default function Home() {
                     }}
                     title="Ir para esta mensagem no chat"
                   >
-                    <time>{timeLabel(message.created_at)}</time>
+                    {chatSettings.showTimestamps && (
+                      <time>{timeLabel(message.created_at)}</time>
+                    )}
                     <span className="userProfileMessageText">
                       {renderMessageText(message)}
                     </span>
@@ -4008,30 +4287,273 @@ export default function Home() {
           className="popupSettingsOverlay"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setSettingsOpen(false);
+            if (event.target === event.currentTarget) closeSettings();
           }}
         >
           <section
-            className="popupSettingsDialog"
+            className="popupSettingsDialog chatPreferencesDialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="popup-settings-title"
           >
-            <div className="popupSettingsHeader">
-              <div>
-                <strong id="popup-settings-title">Configurações do chat</strong>
-                <span>Canais e contas conectadas</span>
+            <div className="popupSettingsHeader preferencesHeader">
+              <div className="settingsHeaderIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 7h10M18 7h2M4 17h2M10 17h10M4 12h4M12 12h8" />
+                  <circle cx="16" cy="7" r="2" />
+                  <circle cx="8" cy="17" r="2" />
+                  <circle cx="10" cy="12" r="2" />
+                </svg>
+              </div>
+              <div className="settingsHeaderCopy">
+                <strong id="popup-settings-title">Configurações do Chat</strong>
+                <span>Ajuste o comportamento do feed, visualização e alertas</span>
               </div>
               <button
                 type="button"
-                onClick={() => setSettingsOpen(false)}
+                onClick={closeSettings}
                 aria-label="Fechar configurações"
               >
                 ×
               </button>
             </div>
-            <div className="popupSettingsBody">
-              {renderSidebarContent()}
+
+            <div className="popupSettingsBody preferencesBody">
+              <section className="settingsSection">
+                <div className="settingsSectionTitle">
+                  <span aria-hidden="true">◉</span>
+                  VISUALIZAÇÃO &amp; APARÊNCIA
+                </div>
+
+                <div className="settingsCard">
+                  <div className="settingsCardCopy">
+                    <strong>Modo Compacto</strong>
+                    <span>Reduz espaçamentos e exibe mais mensagens por tela</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`settingsSwitch ${settingsDraft.compactMode ? "active" : ""}`}
+                    role="switch"
+                    aria-checked={settingsDraft.compactMode}
+                    aria-label="Modo compacto"
+                    onClick={() =>
+                      setSettingsDraft((previous) => ({
+                        ...previous,
+                        compactMode: !previous.compactMode,
+                      }))
+                    }
+                  >
+                    <span />
+                  </button>
+                </div>
+
+                <div className="settingsCard">
+                  <div className="settingsCardCopy">
+                    <strong>Exibir Badges de Plataforma</strong>
+                    <span>Ícones e badges da Twitch, Kick e YouTube ao lado do nome</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`settingsSwitch ${settingsDraft.showPlatformBadges ? "active" : ""}`}
+                    role="switch"
+                    aria-checked={settingsDraft.showPlatformBadges}
+                    aria-label="Exibir badges de plataforma"
+                    onClick={() =>
+                      setSettingsDraft((previous) => ({
+                        ...previous,
+                        showPlatformBadges: !previous.showPlatformBadges,
+                      }))
+                    }
+                  >
+                    <span />
+                  </button>
+                </div>
+
+                <div className="settingsCard settingsFontCard">
+                  <div className="settingsCardCopy settingsFontHeading">
+                    <strong>Tamanho da Fonte do Feed</strong>
+                    <span className="settingsFontValue">
+                      {settingsDraft.feedFontSize === "small"
+                        ? "12px (Pequena)"
+                        : settingsDraft.feedFontSize === "large"
+                          ? "16px (Grande)"
+                          : "14px (Média)"}
+                    </span>
+                  </div>
+                  <div className="settingsSegmented" role="group" aria-label="Tamanho da fonte">
+                    {([
+                      ["small", "Pequena"],
+                      ["medium", "Média"],
+                      ["large", "Grande"],
+                    ] as Array<[FeedFontSize, string]>).map(([value, label]) => (
+                      <button
+                        type="button"
+                        key={value}
+                        className={settingsDraft.feedFontSize === value ? "active" : ""}
+                        onClick={() =>
+                          setSettingsDraft((previous) => ({
+                            ...previous,
+                            feedFontSize: value,
+                          }))
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="settingsCard">
+                  <div className="settingsCardCopy">
+                    <strong>Timestamps / Horário</strong>
+                    <span>Exibir horário de envio nas mensagens</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`settingsSwitch ${settingsDraft.showTimestamps ? "active" : ""}`}
+                    role="switch"
+                    aria-checked={settingsDraft.showTimestamps}
+                    aria-label="Exibir horário nas mensagens"
+                    onClick={() =>
+                      setSettingsDraft((previous) => ({
+                        ...previous,
+                        showTimestamps: !previous.showTimestamps,
+                      }))
+                    }
+                  >
+                    <span />
+                  </button>
+                </div>
+              </section>
+
+              <section className="settingsSection">
+                <div className="settingsSectionTitle">
+                  <span aria-hidden="true">◆</span>
+                  FILTROS &amp; MODERAÇÃO
+                </div>
+
+                <div className="settingsCard">
+                  <div className="settingsCardCopy">
+                    <strong>Ocultar Mensagens de Bots</strong>
+                    <span>Ocultar alertas automáticos e mensagens identificadas como bots</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`settingsSwitch ${settingsDraft.hideBots ? "active" : ""}`}
+                    role="switch"
+                    aria-checked={settingsDraft.hideBots}
+                    aria-label="Ocultar mensagens de bots"
+                    onClick={() =>
+                      setSettingsDraft((previous) => ({
+                        ...previous,
+                        hideBots: !previous.hideBots,
+                      }))
+                    }
+                  >
+                    <span />
+                  </button>
+                </div>
+
+                <div className="settingsCard">
+                  <div className="settingsCardCopy">
+                    <strong>Bloqueio de Links / Anti-Spam</strong>
+                    <span>Ocultar URLs enviadas por espectadores comuns</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`settingsSwitch ${settingsDraft.blockLinks ? "active" : ""}`}
+                    role="switch"
+                    aria-checked={settingsDraft.blockLinks}
+                    aria-label="Bloquear links de espectadores comuns"
+                    onClick={() =>
+                      setSettingsDraft((previous) => ({
+                        ...previous,
+                        blockLinks: !previous.blockLinks,
+                      }))
+                    }
+                  >
+                    <span />
+                  </button>
+                </div>
+              </section>
+
+              <section className="settingsSection">
+                <div className="settingsSectionTitle">
+                  <span aria-hidden="true">◖</span>
+                  NOTIFICAÇÕES SONORAS
+                </div>
+
+                <div className="settingsCard">
+                  <div className="settingsCardCopy">
+                    <strong>Som em Novas Mensagens</strong>
+                    <span>Tocar bipe sutil a cada nova mensagem recebida</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`settingsSwitch ${settingsDraft.newMessageSound ? "active" : ""}`}
+                    role="switch"
+                    aria-checked={settingsDraft.newMessageSound}
+                    aria-label="Som em novas mensagens"
+                    onClick={() =>
+                      setSettingsDraft((previous) => ({
+                        ...previous,
+                        newMessageSound: !previous.newMessageSound,
+                      }))
+                    }
+                  >
+                    <span />
+                  </button>
+                </div>
+
+                <div className="settingsCard">
+                  <div className="settingsCardCopy">
+                    <strong>Alerta Sonoro em Menções (@você)</strong>
+                    <span>Notificar com som de destaque quando sua conta for citada</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`settingsSwitch ${settingsDraft.mentionSound ? "active" : ""}`}
+                    role="switch"
+                    aria-checked={settingsDraft.mentionSound}
+                    aria-label="Alerta sonoro em menções"
+                    onClick={() =>
+                      setSettingsDraft((previous) => ({
+                        ...previous,
+                        mentionSound: !previous.mentionSound,
+                      }))
+                    }
+                  >
+                    <span />
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <div className="settingsFooter">
+              <button
+                type="button"
+                className="restoreSettingsButton"
+                onClick={restoreDefaultSettings}
+              >
+                Restaurar Padrões
+              </button>
+              <div>
+                <button
+                  type="button"
+                  className="cancelSettingsButton"
+                  onClick={closeSettings}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="saveSettingsButton"
+                  onClick={saveSettings}
+                >
+                  <span aria-hidden="true">✓</span>
+                  Salvar Alterações
+                </button>
+              </div>
             </div>
           </section>
         </div>
