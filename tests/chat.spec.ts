@@ -36,7 +36,7 @@ const messages = [
     channel_id: "twitch-channel",
     author_id: "alice",
     author_name: "Alice",
-    author_avatar: image,
+    author_avatar: null,
     author_color: "#a970ff",
     message: "Olá Kappa BTTV FFZ SEVEN",
     created_at: "2026-10-03T18:11:00Z",
@@ -168,6 +168,15 @@ async function setup(
     const p = url.pathname;
     if (!p.startsWith("/api/")) return route.continue();
     if (p === "/api/auth/status") return route.fulfill({ json: authState });
+    if (p === "/api/avatars")
+      return route.fulfill({
+        json: {
+          avatars: {
+            "twitch:id:alice": image,
+            "twitch:name:alice": image,
+          },
+        },
+      });
     if (p === "/api/messages")
       return route.fulfill({
         json: {

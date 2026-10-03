@@ -166,6 +166,7 @@ export default function Home() {
   const soundInitializedRef = useRef(false);
   const lastSoundMessageKeyRef = useRef("");
   const audioContextRef = useRef<AudioContext | null>(null);
+  const avatarLookupAttemptedRef = useRef<Set<string>>(new Set());
   const clickedComposerEmotesRef = useRef<
     Record<Platform, Map<string, PickerEmote>>
   >({
@@ -1479,6 +1480,118 @@ export default function Home() {
       previous[url] ? previous : { ...previous, [url]: true },
     );
   }
+
+
+  useEffect(() => {
+    if (!ready || !messages.length) return;
+
+    const users: Array<{
+      platform: Platform;
+      userId?: string;
+      userName?: string;
+    }> = [];
+
+    for (const message of messages) {
+      if (messageEmbeddedAvatar(message)) continue;
+
+      const raw = message.raw || {};
+      const userId = String(
+        message.author_id ||
+          raw?.sender?.user_id ||
+          raw?.sender?.id ||
+          raw?.authorDetails?.channelId ||
+          raw?.author_details?.channel_id ||
+          raw?.chatter_user_id ||
+          "",
+      ).trim();
+      const userName = String(
+        message.author_name ||
+          raw?.sender?.username ||
+          raw?.sender?.slug ||
+          raw?.authorDetails?.displayName ||
+          raw?.author_details?.display_name ||
+          raw?.chatter_user_login ||
+          "",
+      )
+        .trim()
+        .replace(/^@/, "");
+
+      if (!userId && !userName) continue;
+
+      const key = `${message.platform}:${userId || userName.toLocaleLowerCase()}`;
+      if (avatarLookupAttemptedRef.current.has(key)) continue;
+      avatarLookupAttemptedRef.current.add(key);
+      users.push({
+        platform: message.platform,
+        userId: userId || undefined,
+        userName: userName || undefined,
+      });
+
+      if (users.length >= 40) break;
+    }
+
+    if (!users.length) return;
+
+    let cancelled = false;
+    fetch("/api/avatars", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ users }),
+      cache: "no-store",
+    })
+      .then(async (response) =>
+        response.ok
+          ? response.json()
+          : Promise.reject(new Error("Falha ao carregar avatares")),
+      )
+      .then((json) => {
+        if (cancelled || !json?.avatars) return;
+        const avatars = json.avatars as Record<string, string>;
+
+        setMessages((previous) => {
+          let changed = false;
+          const next = previous.map((message) => {
+            if (messageEmbeddedAvatar(message)) return message;
+
+            const raw = message.raw || {};
+            const userId = String(
+              message.author_id ||
+                raw?.sender?.user_id ||
+                raw?.sender?.id ||
+                raw?.authorDetails?.channelId ||
+                raw?.author_details?.channel_id ||
+                raw?.chatter_user_id ||
+                "",
+            ).trim();
+            const userName = String(message.author_name || "")
+              .trim()
+              .replace(/^@/, "")
+              .toLocaleLowerCase();
+
+            const avatar =
+              (userId
+                ? avatars[`${message.platform}:id:${userId}`]
+                : undefined) ||
+              (userName
+                ? avatars[`${message.platform}:name:${userName}`]
+                : undefined);
+
+            if (!avatar) return message;
+            changed = true;
+            return { ...message, author_avatar: avatar };
+          });
+
+          return changed ? next : previous;
+        });
+      })
+      .catch(() => {
+        // Avatar é complementar e nunca deve interromper o chat.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, ready]);
 
   const counts = useMemo(() => {
     const countableMessages = messages.filter(
