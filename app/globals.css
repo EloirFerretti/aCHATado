@@ -43,7 +43,7 @@ a { color: inherit; text-decoration: none; }
 .tinyButton { border:1px solid #303747; background:#181c25; color:#adb4c1; padding:5px 7px; border-radius:7px; font-size:9px; cursor:pointer; }
 .chatPanel { min-width:0; display:flex; flex-direction:column; overflow:hidden; height: calc(100vh - 128px); min-height:650px; }
 .chatHeader { height:64px; padding:0 20px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); background:#12161e; }
-.chatHeader strong { display:block; font-size:14px; }.chatHeader span { display:block; color:#737b8b; font-size:10px; margin-top:3px; }.status { color:#71798a; font-size:10px; display:flex; align-items:center; gap:7px; }.status span { width:7px;height:7px;border-radius:50%;background:#44df78;margin:0;box-shadow:0 0 10px rgba(68,223,120,.5); }
+.chatHeader strong { display:block; font-size:14px; }.chatHeader span { display:block; color:#737b8b; font-size:10px; margin-top:3px; }
 .messageList { flex:1; overflow:auto; padding:12px 18px 22px; }
 .messageListContent { min-height:100%; }
 .message { display:flex; gap:12px; padding:10px 8px; border-radius:12px; transition:.15s ease; }.message:hover { background:#151923; }
@@ -140,7 +140,7 @@ a { color: inherit; text-decoration: none; }
 .connectCallout { display:flex; align-items:center; justify-content:center; min-height:46px; border-radius:11px; font-size:12px; font-weight:750; border:1px dashed #394151; background:#171b23; }.connectCallout.twitch { color:#ceb6ff; }.connectCallout.kick { color:#9aff7c; }.connectCallout.youtube { color:#ff9a94; }
 .inputRow { display:flex; gap:9px; }.textWrap { flex:1; position:relative; }.textWrap textarea { width:100%; min-height:46px; max-height:120px; resize:none; border:1px solid #303746; outline:0; border-radius:11px; background:#171b23; color:white; padding:13px 62px 10px 13px; line-height:20px; }.textWrap textarea:focus { border-color:#4a5466; box-shadow:0 0 0 3px rgba(100,110,130,.08); }.textWrap textarea::placeholder { color:#626a78; }.counter { position:absolute; right:10px; bottom:9px; color:#5f6777; font-size:9px; }.sendButton { min-width:90px; border:0; border-radius:11px; color:white; font-weight:800; font-size:11px; cursor:pointer; }.sendButton.twitch{background:#7f43dc}.sendButton.kick{background:#39c90d;color:#071604}.sendButton.youtube{background:#d63229}.sendButton:disabled { opacity:.4; cursor:not-allowed; }
 .errorBox { margin-top:9px; color:#ff8a8a; font-size:10px; background:#241315; border:1px solid #4a2328; border-radius:8px; padding:8px 10px; }
-@media (max-width: 800px) { .shell{padding:0}.topbar{height:70px;padding:0 14px}.brand p{display:none}.livePill{margin-right:2px}.workspace{margin:0;grid-template-columns:1fr;min-height:calc(100vh - 70px)}.sidebar{display:none}.chatPanel{border-radius:0;border-left:0;border-right:0;height:calc(100vh - 70px);min-height:0}.messageList{padding-left:10px;padding-right:10px}.composer{padding:10px}.sendVia{align-items:flex-start;flex-direction:column;gap:7px}.platformSwitch{width:100%}.platformSwitch button{flex:1;justify-content:center}.inputRow{flex-direction:column}.sendButton{height:42px}.chatHeader{padding:0 14px}.status{display:none} }
+@media (max-width: 800px) { .shell{padding:0}.topbar{height:70px;padding:0 14px}.brand p{display:none}.livePill{margin-right:2px}.workspace{margin:0;grid-template-columns:1fr;min-height:calc(100vh - 70px)}.sidebar{display:none}.chatPanel{border-radius:0;border-left:0;border-right:0;height:calc(100vh - 70px);min-height:0}.messageList{padding-left:10px;padding-right:10px}.composer{padding:10px}.sendVia{align-items:flex-start;flex-direction:column;gap:7px}.platformSwitch{width:100%}.platformSwitch button{flex:1;justify-content:center}.inputRow{flex-direction:column}.sendButton{height:42px}.chatHeader{padding:0 14px} }
 
 
 /* Seleção dinâmica dos canais */
@@ -904,9 +904,6 @@ a { color: inherit; text-decoration: none; }
   }
   .popupMode .chatHeader {
     padding:0 10px;
-  }
-  .popupMode .status {
-    display:none;
   }
   .popupSettingsOverlay {
     padding:10px;
