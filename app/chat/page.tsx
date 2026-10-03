@@ -3076,7 +3076,11 @@ export default function Home() {
       result.push({ type: "verified", text: "Verified" });
     }
 
-    return result;
+    return result.sort((a, b) => {
+      const aIsLevel = kickLevelBadgeNumber(a) !== null;
+      const bIsLevel = kickLevelBadgeNumber(b) !== null;
+      return Number(bIsLevel) - Number(aIsLevel);
+    });
   }
 
   function renderUserBadges(message: Message) {
