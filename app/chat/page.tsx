@@ -331,11 +331,26 @@ function isBotMessage(message: Message) {
   return /(?:^|[_-])bot$/.test(authorName);
 }
 
+const CHAT_LINK_PATTERN =
+  /(?:https?:\/\/|www\.)[^\s<]+|\b[a-z0-9][a-z0-9.-]*\.(?:com|net|org|gg|tv|io|co|me|live|app|dev|br)(?:\/[^\s<]*)?/gi;
+
 function maskUntrustedLinks(value: string) {
-  return value.replace(
-    /(?:https?:\/\/|www\.)[^\s<]+|\b[a-z0-9][a-z0-9.-]*\.(?:com|net|org|gg|tv|io|co|me|live|app|dev|br)(?:\/[^\s<]*)?/gi,
-    "[link oculto]",
-  );
+  return value.replace(CHAT_LINK_PATTERN, "[link oculto]");
+}
+
+function trimChatLinkPunctuation(value: string) {
+  const match = value.match(/^(.*?)([),.!?;:]+)?$/);
+  return {
+    link: match?.[1] || value,
+    trailing: match?.[2] || "",
+  };
+}
+
+function chatLinkHref(value: string) {
+  const normalized = value.trim();
+  return /^https?:\/\//i.test(normalized)
+    ? normalized
+    : `https://${normalized}`;
 }
 
 const pickerProviderLabels: Record<PickerProvider, string> = {
@@ -3297,12 +3312,54 @@ export default function Home() {
     return new RegExp("(" + escaped.join("|") + ")", "g");
   }, [youtubeEmotes]);
 
+  function renderClickableText(textValue: string, keyPrefix: string) {
+    const parts: any[] = [];
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    const pattern = new RegExp(CHAT_LINK_PATTERN.source, "gi");
+
+    while ((match = pattern.exec(textValue)) !== null) {
+      if (match.index > cursor) {
+        parts.push(textValue.slice(cursor, match.index));
+      }
+
+      const { link, trailing } = trimChatLinkPunctuation(match[0]);
+      if (link) {
+        parts.push(
+          <a
+            key={`${keyPrefix}-link-${match.index}`}
+            className="chatMessageLink"
+            href={chatLinkHref(link)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            title={link}
+          >
+            {link}
+          </a>,
+        );
+      }
+      if (trailing) parts.push(trailing);
+      cursor = pattern.lastIndex;
+    }
+
+    if (cursor < textValue.length) parts.push(textValue.slice(cursor));
+    return parts.length ? parts : textValue;
+  }
+
   function renderThirdPartyTwitchText(textValue: string, messageId: string, prefix: string) {
-    if (!Object.keys(thirdPartyEmotes).length) return textValue;
+    if (!Object.keys(thirdPartyEmotes).length) {
+      return renderClickableText(textValue, `${messageId}-${prefix}`);
+    }
 
     return textValue.split(/(\s+)/).map((part, index) => {
       const emote = thirdPartyEmotes[part];
-      if (!emote) return part;
+      if (!emote) {
+        return renderClickableText(
+          part,
+          `${messageId}-${prefix}-text-${index}`,
+        );
+      }
 
       return interactiveChatEmote({
         key: `${messageId}-${prefix}-third-${index}`,
@@ -3422,7 +3479,12 @@ export default function Home() {
 
     while ((match = regex.exec(source)) !== null) {
       if (match.index > cursor) {
-        parts.push(source.slice(cursor, match.index));
+        parts.push(
+          renderClickableText(
+            source.slice(cursor, match.index),
+            `${message.platform_message_id}-kick-text-${index}`,
+          ),
+        );
       }
 
       const emoteId = encodeURIComponent(match[1]);
@@ -3443,8 +3505,17 @@ export default function Home() {
       cursor = regex.lastIndex;
     }
 
-    if (cursor < source.length) parts.push(source.slice(cursor));
-    return parts.length ? parts : message.message;
+    if (cursor < source.length) {
+      parts.push(
+        renderClickableText(
+          source.slice(cursor),
+          `${message.platform_message_id}-kick-text-${index}`,
+        ),
+      );
+    }
+    return parts.length
+      ? parts
+      : renderClickableText(message.message, `${message.platform_message_id}-kick-fallback`);
   }
 
   function kickSubscriberBadgeForCount(count: number | null) {
@@ -3738,11 +3809,21 @@ export default function Home() {
     const source = shouldMaskLinks(message)
       ? maskUntrustedLinks(message.message)
       : message.message;
-    if (!youtubeEmotePattern) return source;
+    if (!youtubeEmotePattern) {
+      return renderClickableText(
+        source,
+        `${message.platform_message_id}-yt-text`,
+      );
+    }
 
     return source.split(youtubeEmotePattern).map((part, index) => {
       const emote = youtubeEmotes[part];
-      if (!emote) return part;
+      if (!emote) {
+        return renderClickableText(
+          part,
+          `${message.platform_message_id}-yt-text-${index}`,
+        );
+      }
 
       return interactiveChatEmote({
         key: `${message.platform_message_id}-yt-native-${index}`,
