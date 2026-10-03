@@ -673,6 +673,28 @@ function messageReplyInfo(message: Message): ReplyTarget | null {
   return null;
 }
 
+function twitchReplyMentionPattern(message: Message) {
+  if (message.platform !== "twitch") return null;
+
+  const reply = messageReplyInfo(message);
+  const authorName = String(reply?.authorName || "")
+    .trim()
+    .replace(/^@/, "");
+
+  if (!authorName || authorName === "Usuário da Twitch") return null;
+
+  const escapedAuthor = authorName.replace(/[.*+?^${}()|[\]\\]/g, "\\function messageDomId(platform: Platform, messageId: string) {");
+  return new RegExp(
+    `^\\s*@${escapedAuthor}(?:\\s*[:,.-]?\\s*)?`,
+    "i",
+  );
+}
+
+function stripTwitchReplyMention(message: Message, value: string) {
+  const pattern = twitchReplyMentionPattern(message);
+  return pattern ? value.replace(pattern, "") : value;
+}
+
 function messageDomId(platform: Platform, messageId: string) {
   return `chat-message-${platform}-${messageId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
@@ -3221,14 +3243,45 @@ export default function Home() {
   function renderTwitchMessage(message: Message) {
     const fragments = message.raw?.message?.fragments;
     if (!Array.isArray(fragments) || !fragments.length) {
+      const source = stripTwitchReplyMention(message, message.message);
       return renderThirdPartyTwitchText(
-        shouldMaskLinks(message) ? maskUntrustedLinks(message.message) : message.message,
+        shouldMaskLinks(message) ? maskUntrustedLinks(source) : source,
         message.platform_message_id,
         "fallback",
       );
     }
 
-    return fragments.map((fragment: any, index: number) => {
+    const replyMentionPattern = twitchReplyMentionPattern(message);
+    let replyMentionRemoved = false;
+    let trimFollowingText = false;
+
+    const visibleFragments = fragments.reduce((result: any[], fragment: any) => {
+      let nextFragment = fragment;
+      const fragmentText = String(fragment?.text || "");
+
+      if (!replyMentionRemoved && replyMentionPattern && fragmentText) {
+        const stripped = fragmentText.replace(replyMentionPattern, "");
+        if (stripped !== fragmentText) {
+          replyMentionRemoved = true;
+          const cleaned = stripped.replace(/^\s+/, "");
+          if (!cleaned) {
+            trimFollowingText = true;
+            return result;
+          }
+          nextFragment = { ...fragment, text: cleaned };
+        }
+      } else if (trimFollowingText && fragmentText) {
+        trimFollowingText = false;
+        const cleaned = fragmentText.replace(/^\s+/, "");
+        if (!cleaned && fragment?.type === "text") return result;
+        nextFragment = { ...fragment, text: cleaned };
+      }
+
+      result.push(nextFragment);
+      return result;
+    }, []);
+
+    return visibleFragments.map((fragment: any, index: number) => {
       if (fragment?.type === "emote" && fragment?.emote?.id) {
         const id = encodeURIComponent(String(fragment.emote.id));
         const formats = Array.isArray(fragment.emote.format) ? fragment.emote.format : [];
