@@ -2129,6 +2129,9 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width:800px) {
+  .chatShell:not(.popupMode) .mobileSettingsButton {
+    display:none !important;
+  }
   .topbarActions {
     gap:6px;
   }
