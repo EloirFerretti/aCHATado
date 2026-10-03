@@ -482,6 +482,93 @@ function mergedAuthorAvatar(previous: Message, incoming: Message) {
   return messageEmbeddedAvatar(incoming) || messageEmbeddedAvatar(previous) || null;
 }
 
+function mergedMessageRaw(previousRaw: any, incomingRaw: any) {
+  if (!previousRaw || typeof previousRaw !== "object") return incomingRaw;
+  if (!incomingRaw || typeof incomingRaw !== "object") return previousRaw;
+
+  const merged: any = {
+    ...previousRaw,
+    ...incomingRaw,
+  };
+
+  for (const key of ["reply", "replies_to", "repliesTo", "reply_to", "replyTo"]) {
+    const previousValue = previousRaw?.[key];
+    const incomingValue = incomingRaw?.[key];
+    if (
+      (previousValue && typeof previousValue === "object") ||
+      (incomingValue && typeof incomingValue === "object")
+    ) {
+      merged[key] = {
+        ...(previousValue && typeof previousValue === "object"
+          ? previousValue
+          : {}),
+        ...(incomingValue && typeof incomingValue === "object"
+          ? incomingValue
+          : {}),
+      };
+    } else if (incomingValue != null || previousValue != null) {
+      merged[key] = incomingValue ?? previousValue;
+    }
+  }
+
+  if (previousRaw?.message || incomingRaw?.message) {
+    merged.message = {
+      ...(previousRaw?.message && typeof previousRaw.message === "object"
+        ? previousRaw.message
+        : {}),
+      ...(incomingRaw?.message && typeof incomingRaw.message === "object"
+        ? incomingRaw.message
+        : {}),
+    };
+  }
+
+  if (previousRaw?.sender || incomingRaw?.sender) {
+    const previousSender =
+      previousRaw?.sender && typeof previousRaw.sender === "object"
+        ? previousRaw.sender
+        : {};
+    const incomingSender =
+      incomingRaw?.sender && typeof incomingRaw.sender === "object"
+        ? incomingRaw.sender
+        : {};
+    merged.sender = {
+      ...previousSender,
+      ...incomingSender,
+    };
+
+    const previousIdentity =
+      previousSender?.identity && typeof previousSender.identity === "object"
+        ? previousSender.identity
+        : {};
+    const incomingIdentity =
+      incomingSender?.identity && typeof incomingSender.identity === "object"
+        ? incomingSender.identity
+        : {};
+
+    const previousBadges = Array.isArray(previousIdentity?.badges)
+      ? previousIdentity.badges
+      : [];
+    const incomingBadges = Array.isArray(incomingIdentity?.badges)
+      ? incomingIdentity.badges
+      : [];
+    const previousBadgesV2 = Array.isArray(previousIdentity?.badges_v2)
+      ? previousIdentity.badges_v2
+      : [];
+    const incomingBadgesV2 = Array.isArray(incomingIdentity?.badges_v2)
+      ? incomingIdentity.badges_v2
+      : [];
+
+    merged.sender.identity = {
+      ...previousIdentity,
+      ...incomingIdentity,
+      badges: incomingBadges.length ? incomingBadges : previousBadges,
+      badges_v2: incomingBadgesV2.length ? incomingBadgesV2 : previousBadgesV2,
+    };
+  }
+
+  return merged;
+}
+
 function cleanReplyPreview(value: unknown) {
   return String(value || "")
     .replace(/\[emote:[^:\]]+:([^\]]+)\]/g, "$1")
@@ -490,37 +577,95 @@ function cleanReplyPreview(value: unknown) {
 }
 
 function messageReplyInfo(message: Message): ReplyTarget | null {
+  const raw = message.raw || {};
+
   if (message.platform === "twitch") {
-    const reply = message.raw?.reply;
-    const messageId = String(reply?.parent_message_id || "").trim();
+    const reply =
+      raw?.reply ||
+      raw?.message?.reply ||
+      raw?.event?.reply ||
+      raw?.data?.reply ||
+      null;
+
+    const messageId = String(
+      reply?.parent_message_id ||
+        reply?.parentMessageId ||
+        reply?.message_id ||
+        reply?.messageId ||
+        raw?.reply_parent_message_id ||
+        raw?.replyParentMessageId ||
+        "",
+    ).trim();
+
     if (!messageId) return null;
+
     return {
       platform: "twitch",
       messageId,
-      authorName:
-        String(
-          reply?.parent_user_name ||
-            reply?.parent_user_login ||
-            "Usuário da Twitch",
-        ),
-      message: cleanReplyPreview(reply?.parent_message_body),
+      authorName: String(
+        reply?.parent_user_name ||
+          reply?.parentUserName ||
+          reply?.parent_user_login ||
+          reply?.parentUserLogin ||
+          reply?.user_name ||
+          reply?.username ||
+          "Usuário da Twitch",
+      ),
+      message: cleanReplyPreview(
+        reply?.parent_message_body ||
+          reply?.parentMessageBody ||
+          reply?.content ||
+          reply?.message ||
+          "",
+      ),
       channelId: message.channel_id || null,
     };
   }
 
   if (message.platform === "kick") {
-    const reply = message.raw?.replies_to;
-    const messageId = String(reply?.message_id || "").trim();
+    const reply =
+      raw?.replies_to ||
+      raw?.repliesTo ||
+      raw?.reply_to ||
+      raw?.replyTo ||
+      raw?.reply ||
+      null;
+
+    const messageId = String(
+      reply?.message_id ||
+        reply?.messageId ||
+        reply?.id ||
+        raw?.reply_to_message_id ||
+        raw?.replyToMessageId ||
+        "",
+    ).trim();
+
     if (!messageId) return null;
+
+    const sender =
+      reply?.sender ||
+      reply?.user ||
+      reply?.author ||
+      {};
+
     return {
       platform: "kick",
       messageId,
       authorName: String(
-        reply?.sender?.username ||
-          reply?.sender?.channel_slug ||
+        sender?.username ||
+          sender?.channel_slug ||
+          sender?.slug ||
+          reply?.username ||
+          reply?.author_name ||
           "Usuário da Kick",
       ),
-      message: cleanReplyPreview(reply?.content),
+      message: cleanReplyPreview(
+        reply?.content ||
+          reply?.message ||
+          reply?.body ||
+          reply?.text ||
+          "",
+      ),
       channelId: message.channel_id || null,
     };
   }
@@ -848,14 +993,17 @@ export default function Home() {
           ? message.raw.sender.identity.badges_v2
           : [];
 
-        if (incomingV2.length > existingV2.length) {
-          next[index] = {
-            ...existing,
-            ...message,
-            id: existing.id ?? message.id,
-            author_avatar: mergedAuthorAvatar(existing, message),
-          };
-        }
+        next[index] = {
+          ...existing,
+          ...message,
+          id: existing.id ?? message.id,
+          author_avatar: mergedAuthorAvatar(existing, message),
+          badges:
+            incomingV2.length || (message.badges || []).length
+              ? message.badges
+              : existing.badges,
+          raw: mergedMessageRaw(existing.raw, message.raw),
+        };
       }
 
       next.sort(
@@ -1224,10 +1372,7 @@ export default function Home() {
                 incomingV2.length || (incoming.badges || []).length
                   ? incoming.badges
                   : previous.badges,
-              raw:
-                previousV2.length && !incomingV2.length
-                  ? previous.raw
-                  : incoming.raw,
+              raw: mergedMessageRaw(previous.raw, incoming.raw),
             };
             return next;
           }
@@ -1433,6 +1578,7 @@ export default function Home() {
             ...incoming,
             id: previous.id ?? incoming.id,
             author_avatar: mergedAuthorAvatar(previous, incoming),
+            raw: mergedMessageRaw(previous.raw, incoming.raw),
           };
           return next;
         }
@@ -3827,11 +3973,19 @@ export default function Home() {
                   {(() => {
                     const reply = messageReplyInfo(m);
                     if (!reply) return null;
-                    const parentLoaded = messages.some(
+                    const parentMessage = messages.find(
                       (candidate) =>
                         candidate.platform === reply.platform &&
                         candidate.platform_message_id === reply.messageId,
                     );
+                    const parentLoaded = Boolean(parentMessage);
+                    const citedAuthor =
+                      parentMessage?.author_name ||
+                      reply.authorName;
+                    const citedMessage =
+                      reply.message ||
+                      cleanReplyPreview(parentMessage?.message) ||
+                      "Mensagem original";
 
                     return (
                       <button
@@ -3850,8 +4004,8 @@ export default function Home() {
                       >
                         <span aria-hidden="true">↪</span>
                         <span>
-                          <b>{reply.authorName}</b>
-                          <small>{reply.message || "Mensagem original"}</small>
+                          <b>{citedAuthor}</b>
+                          <small>{citedMessage}</small>
                         </span>
                       </button>
                     );
