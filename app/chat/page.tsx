@@ -4275,20 +4275,20 @@ export default function Home() {
                         : undefined
                     }
                   >
-                    {profileOpen.profileUrl ? (
-                      <a
-                        className="userProfileNameLink"
-                        href={profileOpen.profileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`Abrir perfil na ${labels[profileOpen.platform]}`}
-                      >
-                        {profileOpen.authorName}
-                      </a>
-                    ) : (
-                      profileOpen.authorName
-                    )}
+                    {profileOpen.authorName}
                   </h2>
+                  {profileOpen.profileUrl && (
+                    <a
+                      className="userProfileOpenLink"
+                      href={profileOpen.profileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`Abrir perfil na ${labels[profileOpen.platform]}`}
+                      aria-label={`Abrir perfil de ${profileOpen.authorName} na ${labels[profileOpen.platform]}`}
+                    >
+                      <Icon name="external" />
+                    </a>
+                  )}
                 </div>
               </div>
             </div>

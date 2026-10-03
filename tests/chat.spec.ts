@@ -506,6 +506,21 @@ test("mentions, profiles, reply payload, pause and clear preserve application be
     "padding",
     "0px",
   );
+  await expect(profileDialog.locator(".userProfileAvatar > img")).toHaveCSS(
+    "max-width",
+    "100%",
+  );
+  await expect(profileDialog.locator(".userProfileAvatar > img")).toHaveCSS(
+    "max-height",
+    "100%",
+  );
+  await expect(
+    profileDialog.getByRole("link", { name: /Abrir perfil de .* na Twitch/ }),
+  ).toBeVisible();
+  await expect(profileDialog.locator(".userProfileHeader")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
   await expect(profileDialog.locator(".profileLocalActions")).toHaveCSS(
     "display",
     "flex",

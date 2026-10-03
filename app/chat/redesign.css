@@ -2228,20 +2228,17 @@ body:has(.overlayMode),
   border: 0;
   background:
     linear-gradient(100deg, #3f2869e6, #352949c4 48%, #17192000 100%) top /
-      100% 76px no-repeat,
-    #171920;
+      100% 76px no-repeat;
 }
 .chatShell .userProfileDialog.kick .userProfileHeader {
   background:
     linear-gradient(100deg, #1d4b2ce0, #243b2dc7 48%, #17192000 100%) top /
-      100% 76px no-repeat,
-    #171920;
+      100% 76px no-repeat;
 }
 .chatShell .userProfileDialog.youtube .userProfileHeader {
   background:
     linear-gradient(100deg, #5b262ae0, #43272bc7 48%, #17192000 100%) top /
-      100% 76px no-repeat,
-    #171920;
+      100% 76px no-repeat;
 }
 .chatShell .userProfilePlatformPill {
   position: absolute;
@@ -2308,6 +2305,10 @@ body:has(.overlayMode),
 .chatShell .userProfileAvatar > img {
   z-index: 1;
   display: block;
+  min-width: 100%;
+  min-height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: cover;
   object-position: center;
 }
@@ -2373,13 +2374,24 @@ body:has(.overlayMode),
   color: var(--text);
   background: #20232c;
 }
-.chatShell .userProfileNameLink {
-  color: inherit;
-  font: inherit;
+.chatShell .userProfileOpenLink {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
   text-decoration: none;
 }
-.chatShell .userProfileNameLink:hover {
-  text-decoration: underline;
+.chatShell .userProfileOpenLink:hover {
+  color: var(--text);
+}
+.chatShell .userProfileOpenLink .uiIcon {
+  width: 12px;
+  height: 12px;
 }
 .chatShell .profileLocalActions {
   display: flex;
