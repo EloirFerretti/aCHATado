@@ -107,7 +107,13 @@ type YouTubeEmote = {
   custom: boolean;
 };
 type PickerProvider = "all" | "twitch" | "kick" | "youtube" | "bttv" | "ffz" | "7tv";
-type PickerCategory = "user" | "channel" | "official" | "thirdparty";
+type PickerCategory =
+  | "user"
+  | "channel"
+  | "official"
+  | "kick-emotes"
+  | "kick-global"
+  | "thirdparty";
 type PickerEmote = {
   id?: string;
   code: string;
@@ -153,6 +159,8 @@ const pickerCategoryLabels: Record<PickerCategory, string> = {
   user: "Seus emotes",
   channel: "Canal",
   official: "Oficiais",
+  "kick-emotes": "Emotes",
+  "kick-global": "Global",
   thirdparty: "Terceiros",
 };
 
@@ -173,14 +181,8 @@ function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
     const setLabel = String(set.slug ?? set.name ?? set.type ?? "")
       .trim()
       .toLowerCase();
-    const isGlobal =
-      setLabel === "global" ||
-      setLabel === "globals" ||
-      setLabel.includes("global");
-    const isEmoji =
-      setLabel === "emoji" ||
-      setLabel === "emojis" ||
-      setLabel.includes("emoji");
+    const isGlobal = setLabel.startsWith("global");
+    const isEmoji = setLabel.startsWith("emoji");
 
     const list = Array.isArray(set.emotes) ? set.emotes : [];
     for (const rawEmote of list) {
@@ -212,7 +214,11 @@ function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
         name,
         url: `https://files.kick.com/emotes/${encodeURIComponent(id)}/fullsize`,
         provider: "kick",
-        category: isGlobal || isEmoji ? "official" : "channel",
+        category: isEmoji
+          ? "kick-emotes"
+          : isGlobal
+            ? "kick-global"
+            : "channel",
         scope: isGlobal || isEmoji ? "global" : "channel",
         native: true,
         emoteType: requiresSubscription
@@ -227,9 +233,18 @@ function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
     }
   }
 
+  const categoryOrder: Record<PickerCategory, number> = {
+    user: 0,
+    channel: 1,
+    "kick-emotes": 2,
+    "kick-global": 3,
+    official: 4,
+    thirdparty: 5,
+  };
+
   return [...found.values()].sort(
     (a, b) =>
-      (a.category === b.category ? 0 : a.category === "official" ? -1 : 1) ||
+      categoryOrder[a.category] - categoryOrder[b.category] ||
       (a.name || a.code).localeCompare(b.name || b.code),
   );
 }
@@ -3645,7 +3660,10 @@ export default function Home() {
                         ) : filteredPickerEmotes.length === 0 ? (
                           <div className="emotePickerEmpty">Nenhum emote encontrado.</div>
                         ) : (
-                          (["user", "channel", "official", "thirdparty"] as PickerCategory[]).map((category) => {
+                          (selected === "kick"
+                            ? (["user", "channel", "kick-emotes", "kick-global", "official", "thirdparty"] as PickerCategory[])
+                            : (["user", "channel", "official", "thirdparty"] as PickerCategory[])
+                          ).map((category) => {
                             const grouped = filteredPickerEmotes.filter((emote) => emote.category === category);
                             if (!grouped.length) return null;
                             return (
