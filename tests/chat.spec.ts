@@ -498,9 +498,21 @@ test("mentions, profiles, reply payload, pause and clear preserve application be
     "Twitch",
   );
   await expect(profileDialog.locator(".userProfileAvatarPlatform")).toBeVisible();
+  await expect(profileDialog.locator(".userProfileHeader")).toHaveCSS(
+    "border-bottom-width",
+    "0px",
+  );
+  await expect(profileDialog.locator(".userProfileAvatar")).toHaveCSS(
+    "padding",
+    "0px",
+  );
   await expect(profileDialog.locator(".profileLocalActions")).toHaveCSS(
     "display",
-    "grid",
+    "flex",
+  );
+  await expect(profileDialog.locator(".profileLocalActions")).toHaveCSS(
+    "justify-content",
+    "center",
   );
   await expect(profileDialog.locator(".profileLocalActions button")).toHaveCount(4);
   await expect(profileDialog.locator(".userProfileMessagesHeader > span").last()).toBeHidden();

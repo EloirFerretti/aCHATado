@@ -2225,6 +2225,7 @@ body:has(.overlayMode),
   min-height: 146px;
   padding: 50px 16px 10px;
   gap: 0;
+  border: 0;
   background:
     linear-gradient(100deg, #3f2869e6, #352949c4 48%, #17192000 100%) top /
       100% 76px no-repeat,
@@ -2283,6 +2284,7 @@ body:has(.overlayMode),
   height: 56px;
   flex: 0 0 56px;
   margin-top: 0;
+  padding: 0;
   border-radius: 16px;
   border: 2px solid #4d376c;
   background: #272a32;
@@ -2380,12 +2382,15 @@ body:has(.overlayMode),
   text-decoration: underline;
 }
 .chatShell .profileLocalActions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: 5px;
   padding: 8px 16px 14px;
 }
 .chatShell .profileLocalActions button {
+  flex: 0 0 auto;
   min-width: 0;
   min-height: 30px;
   padding: 6px 7px;
