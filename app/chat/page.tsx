@@ -683,7 +683,7 @@ function twitchReplyMentionPattern(message: Message) {
 
   if (!authorName || authorName === "Usuário da Twitch") return null;
 
-  const escapedAuthor = authorName.replace(/[.*+?^${}()|[\]\\]/g, "\\function messageDomId(platform: Platform, messageId: string) {");
+  const escapedAuthor = authorName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(
     `^\\s*@${escapedAuthor}(?:\\s*[:,.-]?\\s*)?`,
     "i",
