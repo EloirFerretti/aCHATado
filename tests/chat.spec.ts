@@ -140,6 +140,7 @@ async function setup(
   sendStatus = 200,
   authState: typeof auth = auth,
   channelState: Record<string, unknown> = channels,
+  messageState: typeof messages = messages,
 ) {
   const sends: Record<string, unknown>[] = [];
   const errors: string[] = [];
@@ -186,7 +187,7 @@ async function setup(
       return route.fulfill({
         json: {
           dbConfigured: true,
-          messages: url.searchParams.get("after") === "0" ? messages : [],
+          messages: url.searchParams.get("after") === "0" ? messageState : [],
         },
       });
     if (p === "/api/emotes")
@@ -236,7 +237,7 @@ async function setup(
     return route.fulfill({ json: { mode: "stream", active: true, ok: true } });
   });
   await page.goto("/chat");
-  await expect(page.locator("article.message")).toHaveCount(3);
+  await expect(page.locator("article.message")).toHaveCount(messageState.length);
   return { sends, errors };
 }
 
@@ -331,6 +332,65 @@ for (const platform of platforms)
       page.getByRole("button", { name: "Enviar", exact: true }),
     ).toHaveCount(0);
   });
+
+test("clicking a loaded Kick citation flashes the original message", async ({
+  page,
+}) => {
+  const kickMessages = [
+    {
+      ...messages[1],
+      id: 10,
+      platform_message_id: "kick-parent",
+      author_name: "OriginalKickUser",
+      message: "Mensagem original carregada",
+      raw: {
+        content: "Mensagem original carregada",
+        sender: { profile_picture: image },
+      },
+    },
+    {
+      ...messages[1],
+      id: 11,
+      platform_message_id: "kick-reply",
+      author_name: "ReplyKickUser",
+      message: "Resposta da Kick",
+      raw: {
+        content: "Resposta da Kick",
+        type: "reply",
+        sender: { profile_picture: image },
+        metadata: {
+          original_sender: { username: "OriginalKickUser" },
+          original_message: {
+            id: "kick-parent",
+            content: "Mensagem original carregada",
+          },
+        },
+      },
+    },
+  ];
+
+  await setup(page, 200, auth, channels, kickMessages);
+
+  const parent = page.locator("#chat-message-kick-kick-parent");
+  await page.locator("#chat-message-kick-kick-reply .messageReplyContext").click();
+  await expect(parent).toHaveClass(/replyTargetFlash/);
+  await expect(parent).toHaveCSS("animation-name", "reply-target-flash");
+});
+
+test("bot messages receive the privileged highlight", async ({ page }) => {
+  const botMessage = [
+    {
+      ...messages[0],
+      platform_message_id: "bot-1",
+      author_name: "Nightbot",
+      badges: [],
+    },
+  ];
+  await setup(page, 200, auth, channels, botMessage);
+  await expect(page.locator("#chat-message-twitch-bot-1")).toHaveClass(
+    /messagePrivileged/,
+  );
+});
 
 for (const platform of platforms)
   test(`emote insertion and ${platform} send stop at the API boundary`, async ({
@@ -436,12 +496,6 @@ test("mentions, profiles, reply payload, pause and clear preserve application be
   await page
     .getByRole("button", { name: "Fechar perfil", exact: true })
     .click();
-  await page.locator(".message.kick .messageReplyContext").click();
-  await expect(page.locator(".message.twitch")).toHaveClass(/replyTargetFlash/);
-  await expect(page.locator(".message.twitch")).toHaveCSS(
-    "border-color",
-    "rgb(192, 193, 255)",
-  );
   await page.locator(".message.twitch").hover();
   await page.getByRole("button", { name: "Responder a Alice" }).click();
   await page
