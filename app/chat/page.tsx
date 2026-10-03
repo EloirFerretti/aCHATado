@@ -1947,6 +1947,19 @@ export default function Home() {
     setChatSettings(normalized);
     setSettingsDraft(normalized);
     localStorage.setItem(CHAT_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+
+    if (normalized.newMessageSound || normalized.mentionSound) {
+      try {
+        const context =
+          audioContextRef.current ||
+          new window.AudioContext();
+        audioContextRef.current = context;
+        if (context.state === "suspended") void context.resume();
+      } catch {
+        // Áudio continuará desativado se o navegador não disponibilizar Web Audio.
+      }
+    }
+
     setSettingsOpen(false);
   }
 
@@ -3772,7 +3785,11 @@ export default function Home() {
                       />
                     )}
                   </button>
-                  <span className={`miniPlatform ${m.platform}`}>{initials[m.platform]}</span>
+                  {chatSettings.showPlatformBadges && (
+                    <span className={`miniPlatform ${m.platform}`}>
+                      {initials[m.platform]}
+                    </span>
+                  )}
                 </div>
                 <div className="messageBody">
                   {(() => {
@@ -3808,7 +3825,7 @@ export default function Home() {
                     );
                   })()}
                   <div className="meta">
-                    {chatSettings.showPlatformBadges ? renderUserBadges(m) : null}
+                    {renderUserBadges(m)}
                     <button
                       type="button"
                       className="authorProfileButton"
@@ -3820,7 +3837,11 @@ export default function Home() {
                         {m.author_name}
                       </strong>
                     </button>
-                    <span className={`platformLabel ${m.platform}`}>{labels[m.platform]}</span>
+                    {chatSettings.showPlatformBadges && (
+                      <span className={`platformLabel ${m.platform}`}>
+                        {labels[m.platform]}
+                      </span>
+                    )}
                     {chatSettings.showTimestamps && (
                       <time>{timeLabel(m.created_at)}</time>
                     )}
@@ -4142,11 +4163,13 @@ export default function Home() {
                 )}
               </div>
               <div className="userProfileIdentity">
-                <span className={`platformLabel ${profileOpen.platform}`}>
-                  {labels[profileOpen.platform]}
-                </span>
+                {chatSettings.showPlatformBadges && (
+                  <span className={`platformLabel ${profileOpen.platform}`}>
+                    {labels[profileOpen.platform]}
+                  </span>
+                )}
                 <div className="userProfileNameRow">
-                  {chatSettings.showPlatformBadges && profileRecentMessages[0]
+                  {profileRecentMessages[0]
                     ? renderUserBadges(profileRecentMessages[0])
                     : null}
                   <h2
