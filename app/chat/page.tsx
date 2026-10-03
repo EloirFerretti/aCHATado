@@ -4230,6 +4230,13 @@ export default function Home() {
               onPointerUp={endProfileDrag}
               onPointerCancel={endProfileDrag}
             >
+              <span
+                className={`userProfilePlatformPill ${profileOpen.platform}`}
+              >
+                <span className="userProfilePlatformDot" aria-hidden="true" />
+                {labels[profileOpen.platform]}
+              </span>
+
               <div className={`userProfileAvatar ${profileOpen.platform}`}>
                 <span className="avatarFallback" aria-hidden="true">
                   {avatarFallback(profileOpen.authorName)}
@@ -4247,13 +4254,15 @@ export default function Home() {
                     }}
                   />
                 )}
+                <span
+                  className={`userProfileAvatarPlatform ${profileOpen.platform}`}
+                  aria-hidden="true"
+                >
+                  <PlatformIcon platform={profileOpen.platform} />
+                </span>
               </div>
+
               <div className="userProfileIdentity">
-                {chatSettings.showPlatformBadges && (
-                  <span className={`platformLabel ${profileOpen.platform}`}>
-                    {labels[profileOpen.platform]}
-                  </span>
-                )}
                 <div className="userProfileNameRow">
                   {chatSettings.showPlatformBadges && profileRecentMessages[0]
                     ? renderUserBadges(profileRecentMessages[0])
@@ -4283,59 +4292,13 @@ export default function Home() {
                     Link do perfil indisponível
                   </span>
                 )}
-                {canModerate(profileOpen.platform) && (
-                  <div className="userProfileModeration">
-                    {!auth[profileOpen.platform]?.moderationReady ? (
-                      <a
-                        className="moderationReconnect"
-                        href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
-                      >
-                        Reconectar para ativar moderação
-                      </a>
-                    ) : (
-                      <div className="moderationActionRow">
-                        <button
-                          type="button"
-                          className="moderationButton timeout"
-                          onClick={() => moderateProfile("timeout")}
-                          disabled={Boolean(moderationBusy)}
-                        >
-                          Timeout
-                        </button>
-                        <button
-                          type="button"
-                          className="moderationButton ban"
-                          onClick={() => moderateProfile("ban")}
-                          disabled={Boolean(moderationBusy)}
-                        >
-                          Banir
-                        </button>
-                        <button
-                          type="button"
-                          className="moderationButton unban"
-                          onClick={() => moderateProfile("unban")}
-                          disabled={Boolean(moderationBusy)}
-                        >
-                          Desbanir
-                        </button>
-                      </div>
-                    )}
-                    {moderationFeedback && (
-                      <div
-                        className={`moderationFeedback ${moderationFeedback.type}`}
-                        role="status"
-                      >
-                        {moderationFeedback.text}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
 
             <div className="profileLocalActions">
               <button
                 type="button"
+                className="profileAction mention"
                 onClick={() => {
                   const profile = profileOpen;
                   setSelected(profile.platform);
@@ -4348,8 +4311,22 @@ export default function Home() {
               >
                 <Icon name="at" /> Mencionar
               </button>
+
+              {canModerate(profileOpen.platform) &&
+                auth[profileOpen.platform]?.moderationReady && (
+                  <button
+                    type="button"
+                    className="profileAction timeout"
+                    onClick={() => moderateProfile("timeout")}
+                    disabled={Boolean(moderationBusy)}
+                  >
+                    <Icon name="history" /> Timeout
+                  </button>
+                )}
+
               <button
                 type="button"
+                className="profileAction mute"
                 title="Ocultar mensagens deste usuário somente nesta sessão"
                 onClick={() => {
                   setMutedProfiles((profiles) => [...profiles, profileOpen]);
@@ -4358,10 +4335,55 @@ export default function Home() {
               >
                 <Icon name="pause" /> Silenciar
               </button>
+
+              {canModerate(profileOpen.platform) &&
+                auth[profileOpen.platform]?.moderationReady && (
+                  <button
+                    type="button"
+                    className="profileAction ban"
+                    onClick={() => moderateProfile("ban")}
+                    disabled={Boolean(moderationBusy)}
+                  >
+                    <Icon name="shield" /> Banir
+                  </button>
+                )}
             </div>
 
+            {canModerate(profileOpen.platform) && (
+              <div className="userProfileModeration">
+                {!auth[profileOpen.platform]?.moderationReady ? (
+                  <a
+                    className="moderationReconnect"
+                    href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
+                  >
+                    Reconectar para ativar moderação
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    className="moderationUnban"
+                    onClick={() => moderateProfile("unban")}
+                    disabled={Boolean(moderationBusy)}
+                  >
+                    Desbanir usuário
+                  </button>
+                )}
+                {moderationFeedback && (
+                  <div
+                    className={`moderationFeedback ${moderationFeedback.type}`}
+                    role="status"
+                  >
+                    {moderationFeedback.text}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="userProfileMessagesHeader">
-              <strong>Últimas mensagens</strong>
+              <span className="userProfileMessagesTitle">
+                <Icon name="history" />
+                <strong>Últimas mensagens</strong>
+              </span>
               <span>
                 {profileRecentMessages.length
                   ? `${profileRecentMessages.length} carregadas`

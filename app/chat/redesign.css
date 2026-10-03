@@ -2204,130 +2204,309 @@ body:has(.overlayMode),
   backdrop-filter: blur(4px);
 }
 .chatShell .userProfileDialog {
-  width: 400px;
-  max-width: calc(100vw - 32px);
+  width: 386px;
+  max-width: calc(100vw - 20px);
   max-height: 85dvh;
+  display: flex;
+  flex-direction: column;
   border-radius: 16px;
-  border: 1px solid var(--line);
-  background: #191b23f5;
+  border: 1px solid #30333e;
+  background: #171920f7;
   box-shadow: 0 25px 50px #000e;
-  overflow: auto;
+  overflow: hidden;
 }
 .chatShell .userProfileHeader {
   position: relative;
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 42px 16px 16px;
-  gap: 10px;
-  background: linear-gradient(135deg, #9146ff4d, #272a32 45%, #0b0e15 80%) top /
-    100% 80px no-repeat;
+  min-height: 146px;
+  padding: 48px 16px 12px;
+  gap: 0;
+  background:
+    linear-gradient(100deg, #3f2869e6, #352949c4 48%, #17192000 100%) top /
+      100% 76px no-repeat,
+    #171920;
 }
 .chatShell .userProfileDialog.kick .userProfileHeader {
-  background-image: linear-gradient(
-    135deg,
-    #53fc1833,
-    #272a32 45%,
-    #0b0e15 80%
-  );
+  background:
+    linear-gradient(100deg, #1d4b2ce0, #243b2dc7 48%, #17192000 100%) top /
+      100% 76px no-repeat,
+    #171920;
 }
 .chatShell .userProfileDialog.youtube .userProfileHeader {
-  background-image: linear-gradient(
-    135deg,
-    #ff000033,
-    #272a32 45%,
-    #0b0e15 80%
-  );
+  background:
+    linear-gradient(100deg, #5b262ae0, #43272bc7 48%, #17192000 100%) top /
+      100% 76px no-repeat,
+    #171920;
+}
+.chatShell .userProfilePlatformPill {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  padding: 2px 8px;
+  border: 1px solid #a970ff55;
+  border-radius: 4px;
+  background: #9146ff38;
+  color: #d9b8ff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.chatShell .userProfilePlatformPill.kick {
+  border-color: #53fc1855;
+  background: #53fc1824;
+  color: #8dff67;
+}
+.chatShell .userProfilePlatformPill.youtube {
+  border-color: #ff525255;
+  background: #ff000024;
+  color: #ff9a9a;
+}
+.chatShell .userProfilePlatformDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 .chatShell .userProfileAvatar {
+  position: relative;
   width: 56px;
   height: 56px;
-  border-radius: 16px;
-  border: 2px solid #191b23;
-  background: #272a32;
-  overflow: hidden;
   flex: 0 0 56px;
+  margin-top: 0;
+  border-radius: 16px;
+  border: 2px solid #4d376c;
+  background: #272a32;
+  box-shadow: 0 0 0 2px #11131a;
+  overflow: visible;
 }
-.chatShell .userProfileAvatar img {
+.chatShell .userProfileAvatar.kick {
+  border-color: #2f6b2e;
+}
+.chatShell .userProfileAvatar.youtube {
+  border-color: #703034;
+}
+.chatShell .userProfileAvatar > .avatarFallback,
+.chatShell .userProfileAvatar > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border-radius: 14px;
 }
-.chatShell .userProfileNameRow {
-  justify-content: center;
-  gap: 8px;
-  margin-top: 8px;
+.chatShell .userProfileAvatar > img {
+  z-index: 1;
+  display: block;
+  object-fit: cover;
+  object-position: center;
 }
-.chatShell .userProfileNameRow h2 {
-  font-size: 16px;
+.chatShell .userProfileAvatarPlatform {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  z-index: 2;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #171920;
+  border-radius: 50%;
+  background: #9146ff;
+  color: #fff;
+}
+.chatShell .userProfileAvatarPlatform.kick {
+  background: #53fc18;
+  color: #0b0e15;
+}
+.chatShell .userProfileAvatarPlatform.youtube {
+  background: #ff0000;
+}
+.chatShell .userProfileAvatarPlatform .platformSvg {
+  width: 9px;
+  height: 9px;
 }
 .chatShell .userProfileIdentity {
   width: 100%;
+  min-width: 0;
+  margin-top: 10px;
+}
+.chatShell .userProfileNameRow {
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+}
+.chatShell .userProfileNameRow h2 {
+  max-width: 230px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chatShell .userProfileClose {
-  z-index: 2;
-  top: 12px;
-  right: 12px;
+  z-index: 4;
+  top: 14px;
+  right: 14px;
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  border: 1px solid var(--line);
-  background: #0b0e15cc;
+  border: 1px solid #30333e;
+  background: #11131ac7;
+  color: #9095a5;
+}
+.chatShell .userProfileClose:hover {
+  color: var(--text);
+  background: #20232c;
+}
+.chatShell .userProfileExternalLink,
+.chatShell .userProfileExternalUnavailable {
+  display: inline-flex;
+  margin-top: 4px;
+  font-size: 9px;
+  line-height: 13px;
 }
 .chatShell .userProfileExternalLink {
-  font-size: 11px;
+  color: #979bab;
+}
+.chatShell .userProfileExternalLink:hover {
   color: var(--primary);
-  margin-top: 8px;
+}
+.chatShell .userProfileExternalUnavailable {
+  color: #6f7483;
+}
+.chatShell .profileLocalActions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 0 16px 14px;
+}
+.chatShell .profileLocalActions button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 6px 7px;
+  gap: 5px;
+  border: 1px solid #363a46;
+  border-radius: 7px;
+  background: #252832;
+  color: #d4d7e1;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.chatShell .profileLocalActions button:hover {
+  background: #303440;
+}
+.chatShell .profileLocalActions .uiIcon {
+  width: 12px;
+  height: 12px;
+}
+.chatShell .profileLocalActions .ban {
+  border-color: #ff6b6b70;
+  background: #4b2328;
+  color: #ffb2b2;
+}
+.chatShell .profileLocalActions .ban:hover {
+  background: #5b282e;
 }
 .chatShell .userProfileModeration {
-  margin-top: 14px;
-}
-.chatShell .moderationActionRow {
-  justify-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 6px;
+  margin: -6px 16px 12px;
 }
-.chatShell .moderationButton {
-  border: 1px solid var(--line);
-  background: #272a32;
-  font-size: 11px;
-  border-radius: 8px;
-  padding: 6px 8px;
+.chatShell .moderationUnban {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8f94a3;
+  font-size: 9px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.chatShell .moderationButton.ban {
-  color: #ffb4ab;
-  background: #93000a4d;
-  border-color: #ffb4ab4d;
+.chatShell .moderationUnban:hover {
+  color: var(--primary);
+}
+.chatShell .moderationReconnect {
+  font-size: 10px;
+  color: var(--primary);
 }
 .chatShell .userProfileMessagesHeader {
-  padding: 0 16px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px 9px;
   background: transparent;
   border: 0;
+  color: #d8dae3;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: 9px;
+}
+.chatShell .userProfileMessagesTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.chatShell .userProfileMessagesTitle .uiIcon {
+  width: 12px;
+  height: 12px;
+  color: #9ba0b0;
+}
+.chatShell .userProfileMessagesHeader > span:last-child {
+  color: #737888;
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: none;
 }
 .chatShell .userProfileMessages {
-  max-height: 220px;
+  min-height: 0;
+  max-height: 210px;
   padding: 0 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
+  overflow-y: auto;
 }
 .chatShell .userProfileMessage {
-  padding: 8px;
-  background: #272a3299;
-  border: 1px solid #46455433;
+  padding: 8px 9px;
+  background: #20232b;
+  border: 1px solid #2d303a;
   border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
   text-align: left;
 }
+.chatShell .userProfileMessage:hover {
+  background: #262a34;
+  border-color: #3a3e4b;
+}
 .chatShell .userProfileMessage time {
-  align-self: flex-end;
-  font-size: 10px;
-  color: var(--muted);
+  align-self: start;
+  padding-top: 1px;
+  color: #747987;
+  font-size: 9px;
+  line-height: 15px;
 }
 .chatShell .userProfileMessageText {
-  font-size: 11px;
-  line-height: 16px;
+  min-width: 0;
+  color: #d7d9e2;
+  font-size: 10px;
+  line-height: 15px;
 }
 .chatShell .jumpLatestButton {
   bottom: 12px;

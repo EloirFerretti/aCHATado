@@ -491,8 +491,23 @@ test("mentions, profiles, reply payload, pause and clear preserve application be
     .last()
     .click();
   await page.locator(".message.twitch .authorProfileButton").click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.locator(".userProfileMessage")).toHaveCount(1);
+  const profileDialog = page.getByRole("dialog");
+  await expect(profileDialog).toBeVisible();
+  await expect(profileDialog).toHaveCSS("width", "386px");
+  await expect(profileDialog.locator(".userProfilePlatformPill")).toContainText(
+    "Twitch",
+  );
+  await expect(profileDialog.locator(".userProfileAvatarPlatform")).toBeVisible();
+  await expect(profileDialog.locator(".profileLocalActions")).toHaveCSS(
+    "display",
+    "grid",
+  );
+  await expect(profileDialog.locator(".profileLocalActions button")).toHaveCount(4);
+  await expect(profileDialog.locator(".userProfileMessage")).toHaveCount(1);
+  await expect(profileDialog.locator(".userProfileMessage")).toHaveCSS(
+    "display",
+    "grid",
+  );
   await page
     .getByRole("button", { name: "Fechar perfil", exact: true })
     .click();
