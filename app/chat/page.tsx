@@ -2399,6 +2399,52 @@ export default function Home() {
     });
   }, [pickerEmotes, pickerProvider, pickerSearch]);
 
+  const pickerGroups = useMemo(() => {
+    const categoryOrder: PickerCategory[] =
+      selected === "kick"
+        ? ["user", "channel", "kick-emotes", "kick-global", "official"]
+        : ["user", "channel", "official"];
+
+    const groups: Array<{
+      key: string;
+      label: string;
+      emotes: PickerEmote[];
+    }> = [];
+
+    for (const category of categoryOrder) {
+      const emotes = filteredPickerEmotes.filter(
+        (emote) => emote.category === category,
+      );
+      if (!emotes.length) continue;
+
+      groups.push({
+        key: category,
+        label:
+          category === "official"
+            ? `Oficiais da ${labels[selected]}`
+            : pickerCategoryLabels[category],
+        emotes,
+      });
+    }
+
+    const thirdPartyProviders = ["7tv", "bttv", "ffz"] as const;
+    for (const provider of thirdPartyProviders) {
+      const emotes = filteredPickerEmotes.filter(
+        (emote) =>
+          emote.category === "thirdparty" && emote.provider === provider,
+      );
+      if (!emotes.length) continue;
+
+      groups.push({
+        key: `thirdparty-${provider}`,
+        label: pickerProviderLabels[provider],
+        emotes,
+      });
+    }
+
+    return groups;
+  }, [filteredPickerEmotes, selected]);
+
   function composerPlainText(root: HTMLElement) {
     return Array.from(root.childNodes)
       .map((node) => {
@@ -3660,60 +3706,55 @@ export default function Home() {
                         ) : filteredPickerEmotes.length === 0 ? (
                           <div className="emotePickerEmpty">Nenhum emote encontrado.</div>
                         ) : (
-                          (selected === "kick"
-                            ? (["user", "channel", "kick-emotes", "kick-global", "official", "thirdparty"] as PickerCategory[])
-                            : (["user", "channel", "official", "thirdparty"] as PickerCategory[])
-                          ).map((category) => {
-                            const grouped = filteredPickerEmotes.filter((emote) => emote.category === category);
-                            if (!grouped.length) return null;
-                            return (
-                              <section className="emotePickerGroup" key={category}>
-                                <div className="emotePickerGroupTitle">
-                                  {category === "official"
-                                    ? `Oficiais da ${labels[selected]}`
-                                    : pickerCategoryLabels[category]}
-                                </div>
-                                <div className="emotePickerGrid">
-                                  {grouped.map((emote, index) => (
-                                    <button
-                                      type="button"
-                                      className={`emotePickerItem ${emote.locked ? "locked" : ""}`}
-                                      key={`${emote.provider}-${emote.id || emote.code}-${index}`}
-                                      onClick={() => {
-                                        if (!emote.locked) insertPickerEmote(emote);
-                                      }}
-                                      disabled={Boolean(emote.locked)}
-                                      aria-disabled={Boolean(emote.locked)}
-                                      title={
-                                        emote.locked
-                                          ? `${emote.code} · ${emote.lockReason || "Requer assinatura deste canal."}`
-                                          : `${emote.name || emote.code} · ${pickerProviderLabels[emote.provider]} · ${pickerCategoryLabels[emote.category]}`
-                                      }
-                                    >
-                                      <span className="emoteImageWrap">
-                                        {emote.url ? (
-                                          <img src={emote.url} alt={emote.code} loading="lazy" />
-                                        ) : null}
-                                        {emote.locked && (
-                                          <span className="emoteLockBadge" aria-hidden="true">🔒</span>
-                                        )}
-                                      </span>
-                                      <span>{emote.code}</span>
-                                      <small>
-                                        {emote.locked
-                                          ? emote.tier === "3000"
-                                            ? "SUB TIER 3"
-                                            : emote.tier === "2000"
-                                              ? "SUB TIER 2"
-                                              : "SUB"
-                                          : pickerProviderLabels[emote.provider]}
-                                      </small>
-                                    </button>
-                                  ))}
-                                </div>
-                              </section>
-                            );
-                          })
+                          pickerGroups.map((group) => (
+                            <section className="emotePickerGroup" key={group.key}>
+                              <div className="emotePickerGroupTitle">
+                                {group.label}
+                              </div>
+                              <div className="emotePickerGrid">
+                                {group.emotes.map((emote, index) => (
+                                  <button
+                                    type="button"
+                                    className={`emotePickerItem ${emote.locked ? "locked" : ""}`}
+                                    key={`${emote.provider}-${emote.id || emote.code}-${index}`}
+                                    onClick={() => {
+                                      if (!emote.locked) insertPickerEmote(emote);
+                                    }}
+                                    disabled={Boolean(emote.locked)}
+                                    aria-disabled={Boolean(emote.locked)}
+                                    title={
+                                      emote.locked
+                                        ? `${emote.code} · ${emote.lockReason || "Requer assinatura deste canal."}`
+                                        : `${emote.name || emote.code} · ${pickerProviderLabels[emote.provider]} · ${
+                                            emote.category === "thirdparty"
+                                              ? pickerProviderLabels[emote.provider]
+                                              : pickerCategoryLabels[emote.category]
+                                          }`
+                                    }
+                                  >
+                                    <span className="emoteImageWrap">
+                                      {emote.url ? (
+                                        <img src={emote.url} alt={emote.code} loading="lazy" />
+                                      ) : null}
+                                      {emote.locked && (
+                                        <span className="emoteLockBadge" aria-hidden="true">🔒</span>
+                                      )}
+                                    </span>
+                                    <span>{emote.code}</span>
+                                    <small>
+                                      {emote.locked
+                                        ? emote.tier === "3000"
+                                          ? "SUB TIER 3"
+                                          : emote.tier === "2000"
+                                            ? "SUB TIER 2"
+                                            : "SUB"
+                                        : pickerProviderLabels[emote.provider]}
+                                    </small>
+                                  </button>
+                                ))}
+                              </div>
+                            </section>
+                          ))
                         )}
                       </div>
                     </div>
