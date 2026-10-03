@@ -6,7 +6,9 @@ import {
   labels,
   initials,
   avatarFallback,
+  isBotMessage,
   messageDomId,
+  messageModerationRole,
   timeLabel,
 } from "./model";
 import { Icon } from "./icons";
@@ -47,9 +49,15 @@ export function MessageCard({
   onJump,
   onAvatarError,
 }: Props) {
+  const moderationRole = messageModerationRole(m);
+  const highlightedAuthor =
+    moderationRole === "owner" ||
+    moderationRole === "moderator" ||
+    isBotMessage(m);
+
   return (
     <article
-      className={`message ${m.platform} ${mentioned ? "messageMentioned" : ""} ${reply ? "hasReply" : ""}`}
+      className={`message ${m.platform} ${mentioned ? "messageMentioned" : ""} ${highlightedAuthor ? "messagePrivileged" : ""}`}
       id={messageDomId(m.platform, m.platform_message_id)}
     >
       {reply && (

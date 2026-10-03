@@ -278,6 +278,8 @@ test("unified feed preserves colors, avatars, real badge formats and all emote p
   await expect(page.locator(".message.kick .messageReplyContext")).toContainText(
     "Mensagem original citada da Kick",
   );
+  await expect(page.locator(".message.kick")).not.toHaveClass(/messagePrivileged/);
+  await expect(page.locator(".message.twitch")).toHaveClass(/messagePrivileged/);
   await page.getByRole("button", { name: "Kick 1", exact: true }).click();
   await expect(page.locator("article.message")).toHaveCount(1);
   await page.getByRole("button", { name: /Todas 3/ }).click();
@@ -434,6 +436,12 @@ test("mentions, profiles, reply payload, pause and clear preserve application be
   await page
     .getByRole("button", { name: "Fechar perfil", exact: true })
     .click();
+  await page.locator(".message.kick .messageReplyContext").click();
+  await expect(page.locator(".message.twitch")).toHaveClass(/replyTargetFlash/);
+  await expect(page.locator(".message.twitch")).toHaveCSS(
+    "border-color",
+    "rgb(192, 193, 255)",
+  );
   await page.locator(".message.twitch").hover();
   await page.getByRole("button", { name: "Responder a Alice" }).click();
   await page

@@ -438,6 +438,17 @@ body:has(.overlayMode),
     box-shadow: none;
   }
 }
+.chatShell .replyTargetFlash {
+  animation: reply-target-flash 1.4s ease;
+}
+@keyframes reply-target-flash {
+  20%,
+  70% {
+    background-color: #313244;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px #c0c1ff55;
+  }
+}
 .chatShell button,
 .chatShell input,
 .chatShell select {
@@ -953,7 +964,7 @@ body:has(.overlayMode),
 .chatShell .messageMentioned:hover {
   background: #f59e0b40;
 }
-.chatShell .message.hasReply {
+.chatShell .message.messagePrivileged {
   background: #272a3266;
   border-color: #c0c1ff33;
 }
