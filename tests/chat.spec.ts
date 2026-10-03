@@ -124,7 +124,11 @@ const emotes = (platform: string) => [
   },
 ];
 
-async function setup(page: Page, sendStatus = 200) {
+async function setup(
+  page: Page,
+  sendStatus = 200,
+  authState: typeof auth = auth,
+) {
   const sends: Record<string, unknown>[] = [];
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -156,7 +160,7 @@ async function setup(page: Page, sendStatus = 200) {
     }
     const p = url.pathname;
     if (!p.startsWith("/api/")) return route.continue();
-    if (p === "/api/auth/status") return route.fulfill({ json: auth });
+    if (p === "/api/auth/status") return route.fulfill({ json: authState });
     if (p === "/api/messages")
       return route.fulfill({
         json: {
@@ -240,6 +244,33 @@ test("unified feed preserves colors, avatars, real badge formats and all emote p
   await page.getByRole("button", { name: /Todas 3/ }).click();
   await expect(page.locator("article.message")).toHaveCount(3);
   expect(errors).toEqual([]);
+});
+
+test("disconnected account replaces message controls with the connect action", async ({
+  page,
+}) => {
+  await setup(page, 200, {
+    ...auth,
+    twitch: { ...auth.twitch, connected: false },
+  });
+
+  const connect = page.getByRole("link", {
+    name: "Conecte sua conta da Twitch para enviar mensagens",
+  });
+  await expect(connect).toBeVisible();
+  await expect(connect).toHaveAttribute("href", "/api/auth/twitch/start");
+  await expect(
+    page.getByRole("textbox", { name: "Mensagem", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Abrir menu de emotes" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Comandos do chat" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Enviar", exact: true }),
+  ).toHaveCount(0);
 });
 
 for (const platform of platforms)

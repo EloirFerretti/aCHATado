@@ -1343,6 +1343,35 @@ body:has(.overlayMode),
   color: var(--primary);
   text-decoration: underline;
 }
+.chatShell .composerConnectCta {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  border: 1px solid var(--twitch);
+  border-radius: 12px;
+  background: var(--low);
+  color: var(--twitch);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  text-align: center;
+  text-decoration: none;
+}
+.chatShell .composerConnectCta.kick {
+  border-color: var(--kick);
+  color: var(--kick);
+}
+.chatShell .composerConnectCta.youtube {
+  border-color: var(--youtube);
+  color: var(--youtube);
+}
+.chatShell .composerConnectCta:hover {
+  background: #191b23;
+  filter: brightness(1.08);
+}
 .chatShell .inputRow {
   display: flex;
   flex-direction: row;

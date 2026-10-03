@@ -3475,6 +3475,9 @@ export default function Home() {
   const canSend = Boolean(
     selectedTarget && auth[selected].configured && auth[selected].connected,
   );
+  const needsAccountConnection = Boolean(
+    selectedTarget && auth[selected].configured && !auth[selected].connected,
+  );
 
   return (
     <main
@@ -3911,154 +3914,166 @@ export default function Home() {
                 </div>
               </div>
 
-              {replyingTo && replyingTo.platform === selected && (
-                <div className={`composerReplyPreview ${selected}`}>
-                  <span aria-hidden="true">↩</span>
-                  <div>
-                    <strong>Respondendo a {replyingTo.authorName}</strong>
-                    <small>{replyingTo.message || "Mensagem"}</small>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setReplyingTo(null)}
-                    aria-label="Cancelar resposta"
-                    title="Cancelar resposta"
-                  >
-                    ×
-                  </button>
-                </div>
-              )}
-
-              {!canSend && (
-                <div className="composerStatus">
-                  {!selectedTarget ? (
-                    `Selecione um canal da ${labels[selected]} para enviar.`
-                  ) : !auth[selected].configured ? (
-                    `Envio pela ${labels[selected]} indisponível neste ambiente.`
-                  ) : (
-                    <a
-                      href={`/api/auth/${selected}/start${popupMode ? "?popup=1" : ""}`}
+              {needsAccountConnection ? (
+                <a
+                  className={`composerConnectCta ${selected}`}
+                  href={`/api/auth/${selected}/start${popupMode ? "?popup=1" : ""}`}
+                >
+                  Conecte sua conta {selected === "youtube" ? "do" : "da"}{" "}
+                  {labels[selected]} para enviar mensagens
+                </a>
+              ) : (
+                <>
+                {replyingTo && replyingTo.platform === selected && (
+                  <div className={`composerReplyPreview ${selected}`}>
+                    <span aria-hidden="true">↩</span>
+                    <div>
+                      <strong>Respondendo a {replyingTo.authorName}</strong>
+                      <small>{replyingTo.message || "Mensagem"}</small>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setReplyingTo(null)}
+                      aria-label="Cancelar resposta"
+                      title="Cancelar resposta"
                     >
-                      Conectar {labels[selected]} para enviar mensagens como
-                      você
-                    </a>
-                  )}
-                </div>
-              )}
-              <div className="inputRow">
-                <div className="textWrap">
-                  <button
-                    type="button"
-                    className={`emotePickerButton ${pickerOpen ? "active" : ""}`}
-                    onClick={() => setPickerOpen((value) => !value)}
-                    aria-label="Abrir menu de emotes"
-                    title="Emotes"
-                  >
-                    <Icon name="smile" />
-                  </button>
-
-                  <button
-                    type="button"
-                    className="commandsButton"
-                    aria-label="Comandos do chat"
-                    aria-expanded={commandsOpen}
-                    onClick={() => setCommandsOpen((v) => !v)}
-                  >
-                    <Icon name="terminal" />
-                  </button>
-                  {commandsOpen && (
-                    <div className="commandsPopover">
-                      <strong>Comandos de moderação</strong>
-                      {["/timeout", "/ban", "/unban"].map((command) => (
+                      ×
+                    </button>
+                  </div>
+                )}
+  
+                {!canSend && (
+                  <div className="composerStatus">
+                    {!selectedTarget ? (
+                      `Selecione um canal da ${labels[selected]} para enviar.`
+                    ) : !auth[selected].configured ? (
+                      `Envio pela ${labels[selected]} indisponível neste ambiente.`
+                    ) : (
+                      <a
+                        href={`/api/auth/${selected}/start${popupMode ? "?popup=1" : ""}`}
+                      >
+                        Conectar {labels[selected]} para enviar mensagens como
+                        você
+                      </a>
+                    )}
+                  </div>
+                )}
+                <div className="inputRow">
+                  <div className="textWrap">
+                    <button
+                      type="button"
+                      className={`emotePickerButton ${pickerOpen ? "active" : ""}`}
+                      onClick={() => setPickerOpen((value) => !value)}
+                      aria-label="Abrir menu de emotes"
+                      title="Emotes"
+                    >
+                      <Icon name="smile" />
+                    </button>
+  
+                    <button
+                      type="button"
+                      className="commandsButton"
+                      aria-label="Comandos do chat"
+                      aria-expanded={commandsOpen}
+                      onClick={() => setCommandsOpen((v) => !v)}
+                    >
+                      <Icon name="terminal" />
+                    </button>
+                    {commandsOpen && (
+                      <div className="commandsPopover">
+                        <strong>Comandos de moderação</strong>
+                        {["/timeout", "/ban", "/unban"].map((command) => (
+                          <button
+                            type="button"
+                            key={command}
+                            onClick={() => {
+                              insertPlainComposerText(command + " ");
+                              setCommandsOpen(false);
+                            }}
+                            disabled={!canSend || !canModerate(selected)}
+                          >
+                            {command}
+                          </button>
+                        ))}
+                        <small>
+                          Disponíveis para moderadores e donos do canal. /timeout
+                          usuário minutos · /ban usuário · /unban usuário
+                        </small>
                         <button
                           type="button"
-                          key={command}
-                          onClick={() => {
-                            insertPlainComposerText(command + " ");
-                            setCommandsOpen(false);
-                          }}
-                          disabled={!canSend || !canModerate(selected)}
+                          onClick={() => setCommandsOpen(false)}
                         >
-                          {command}
+                          Fechar
                         </button>
-                      ))}
-                      <small>
-                        Disponíveis para moderadores e donos do canal. /timeout
-                        usuário minutos · /ban usuário · /unban usuário
-                      </small>
-                      <button
-                        type="button"
-                        onClick={() => setCommandsOpen(false)}
-                      >
-                        Fechar
-                      </button>
-                    </div>
-                  )}
-                  {pickerOpen && (
-                    <EmotePicker
-                      platform={selected}
-                      emotes={pickerEmotes}
-                      loading={pickerLoading}
-                      scopeUpgrade={pickerScopeUpgradeRequired}
-                      popup={popupMode}
-                      onInsert={insertPickerEmote}
-                      onClose={() => setPickerOpen(false)}
-                    />
-                  )}
-
-                  <div
-                    ref={composerEditorRef}
-                    className="composerRichEditor"
-                    contentEditable={canSend}
-                    aria-disabled={!canSend}
-                    suppressContentEditableWarning
-                    role="textbox"
-                    aria-multiline="true"
-                    aria-label="Mensagem"
-                    data-placeholder={
-                      replyingTo?.platform === selected
-                        ? "Responder a " +
-                          replyingTo.authorName +
-                          " como " +
-                          (auth[selected]?.userName || "você") +
-                          "..."
-                        : "Digite uma mensagem ou comando…"
-                    }
-                    spellCheck={false}
-                    onInput={() => {
-                      upgradeTypedComposerEmote();
-                      syncComposerText();
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        event.currentTarget.closest("form")?.requestSubmit();
-                      } else if (event.key === "Enter" && event.shiftKey) {
-                        event.preventDefault();
-                        insertPlainComposerText("\n");
+                      </div>
+                    )}
+                    {pickerOpen && (
+                      <EmotePicker
+                        platform={selected}
+                        emotes={pickerEmotes}
+                        loading={pickerLoading}
+                        scopeUpgrade={pickerScopeUpgradeRequired}
+                        popup={popupMode}
+                        onInsert={insertPickerEmote}
+                        onClose={() => setPickerOpen(false)}
+                      />
+                    )}
+  
+                    <div
+                      ref={composerEditorRef}
+                      className="composerRichEditor"
+                      contentEditable={canSend}
+                      aria-disabled={!canSend}
+                      suppressContentEditableWarning
+                      role="textbox"
+                      aria-multiline="true"
+                      aria-label="Mensagem"
+                      data-placeholder={
+                        replyingTo?.platform === selected
+                          ? "Responder a " +
+                            replyingTo.authorName +
+                            " como " +
+                            (auth[selected]?.userName || "você") +
+                            "..."
+                          : "Digite uma mensagem ou comando…"
                       }
-                    }}
-                    onPaste={(event) => {
-                      event.preventDefault();
-                      insertPlainComposerText(
-                        event.clipboardData.getData("text/plain"),
-                      );
-                    }}
-                  />
-                  <span className="counter">
-                    {[...text].length}/{maxLength}
-                  </span>
+                      spellCheck={false}
+                      onInput={() => {
+                        upgradeTypedComposerEmote();
+                        syncComposerText();
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          event.currentTarget.closest("form")?.requestSubmit();
+                        } else if (event.key === "Enter" && event.shiftKey) {
+                          event.preventDefault();
+                          insertPlainComposerText("\n");
+                        }
+                      }}
+                      onPaste={(event) => {
+                        event.preventDefault();
+                        insertPlainComposerText(
+                          event.clipboardData.getData("text/plain"),
+                        );
+                      }}
+                    />
+                    <span className="counter">
+                      {[...text].length}/{maxLength}
+                    </span>
+                  </div>
+                  <button
+                    className={`sendButton ${selected}`}
+                    disabled={!canSend || sending || !text.trim()}
+                  >
+                    <Icon name="send" />
+                    {sending ? "Enviando…" : "Enviar"}
+                  </button>
                 </div>
-                <button
-                  className={`sendButton ${selected}`}
-                  disabled={!canSend || sending || !text.trim()}
-                >
-                  <Icon name="send" />
-                  {sending ? "Enviando…" : "Enviar"}
-                </button>
-              </div>
-
-              {error && <div className="errorBox">{error}</div>}
+  
+                {error && <div className="errorBox">{error}</div>}
+                </>
+              )}
             </form>
           )}
         </section>
