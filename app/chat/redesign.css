@@ -2206,6 +2206,7 @@ body:has(.overlayMode),
 .chatShell .userProfileDialog {
   width: 386px;
   max-width: calc(100vw - 20px);
+  height: min(426px, calc(100dvh - 20px));
   max-height: 85dvh;
   display: flex;
   flex-direction: column;
@@ -2222,7 +2223,7 @@ body:has(.overlayMode),
   align-items: center;
   text-align: center;
   min-height: 146px;
-  padding: 48px 16px 12px;
+  padding: 50px 16px 10px;
   gap: 0;
   background:
     linear-gradient(100deg, #3f2869e6, #352949c4 48%, #17192000 100%) top /
@@ -2243,7 +2244,7 @@ body:has(.overlayMode),
 }
 .chatShell .userProfilePlatformPill {
   position: absolute;
-  top: 14px;
+  top: 16px;
   left: 14px;
   display: inline-flex;
   align-items: center;
@@ -2336,7 +2337,7 @@ body:has(.overlayMode),
 .chatShell .userProfileIdentity {
   width: 100%;
   min-width: 0;
-  margin-top: 10px;
+  margin-top: 11px;
 }
 .chatShell .userProfileNameRow {
   justify-content: center;
@@ -2357,7 +2358,7 @@ body:has(.overlayMode),
 }
 .chatShell .userProfileClose {
   z-index: 4;
-  top: 14px;
+  top: 16px;
   right: 14px;
   width: 28px;
   height: 28px;
@@ -2370,27 +2371,19 @@ body:has(.overlayMode),
   color: var(--text);
   background: #20232c;
 }
-.chatShell .userProfileExternalLink,
-.chatShell .userProfileExternalUnavailable {
-  display: inline-flex;
-  margin-top: 4px;
-  font-size: 9px;
-  line-height: 13px;
+.chatShell .userProfileNameLink {
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
 }
-.chatShell .userProfileExternalLink {
-  color: #979bab;
-}
-.chatShell .userProfileExternalLink:hover {
-  color: var(--primary);
-}
-.chatShell .userProfileExternalUnavailable {
-  color: #6f7483;
+.chatShell .userProfileNameLink:hover {
+  text-decoration: underline;
 }
 .chatShell .profileLocalActions {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 5px;
-  padding: 0 16px 14px;
+  padding: 8px 16px 14px;
 }
 .chatShell .profileLocalActions button {
   min-width: 0;
@@ -2427,18 +2420,6 @@ body:has(.overlayMode),
   gap: 6px;
   margin: -6px 16px 12px;
 }
-.chatShell .moderationUnban {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #8f94a3;
-  font-size: 9px;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.chatShell .moderationUnban:hover {
-  color: var(--primary);
-}
 .chatShell .moderationReconnect {
   font-size: 10px;
   color: var(--primary);
@@ -2466,6 +2447,7 @@ body:has(.overlayMode),
   color: #9ba0b0;
 }
 .chatShell .userProfileMessagesHeader > span:last-child {
+  display: none;
   color: #737888;
   font-size: 8px;
   font-weight: 600;
@@ -2474,6 +2456,7 @@ body:has(.overlayMode),
 .chatShell .userProfileMessages {
   min-height: 0;
   max-height: 210px;
+  flex: 1 1 auto;
   padding: 0 16px 16px;
   display: flex;
   flex-direction: column;

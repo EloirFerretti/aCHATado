@@ -503,6 +503,8 @@ test("mentions, profiles, reply payload, pause and clear preserve application be
     "grid",
   );
   await expect(profileDialog.locator(".profileLocalActions button")).toHaveCount(4);
+  await expect(profileDialog.locator(".userProfileMessagesHeader > span").last()).toBeHidden();
+  await expect(profileDialog.locator(".moderationUnban")).toHaveCount(0);
   await expect(profileDialog.locator(".userProfileMessage")).toHaveCount(1);
   await expect(profileDialog.locator(".userProfileMessage")).toHaveCSS(
     "display",

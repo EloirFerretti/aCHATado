@@ -4275,23 +4275,21 @@ export default function Home() {
                         : undefined
                     }
                   >
-                    {profileOpen.authorName}
+                    {profileOpen.profileUrl ? (
+                      <a
+                        className="userProfileNameLink"
+                        href={profileOpen.profileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`Abrir perfil na ${labels[profileOpen.platform]}`}
+                      >
+                        {profileOpen.authorName}
+                      </a>
+                    ) : (
+                      profileOpen.authorName
+                    )}
                   </h2>
                 </div>
-                {profileOpen.profileUrl ? (
-                  <a
-                    className={`userProfileExternalLink ${profileOpen.platform}`}
-                    href={profileOpen.profileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Abrir perfil na {labels[profileOpen.platform]} ↗
-                  </a>
-                ) : (
-                  <span className="userProfileExternalUnavailable">
-                    Link do perfil indisponível
-                  </span>
-                )}
               </div>
             </div>
 
@@ -4349,35 +4347,28 @@ export default function Home() {
                 )}
             </div>
 
-            {canModerate(profileOpen.platform) && (
-              <div className="userProfileModeration">
-                {!auth[profileOpen.platform]?.moderationReady ? (
-                  <a
-                    className="moderationReconnect"
-                    href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
-                  >
-                    Reconectar para ativar moderação
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    className="moderationUnban"
-                    onClick={() => moderateProfile("unban")}
-                    disabled={Boolean(moderationBusy)}
-                  >
-                    Desbanir usuário
-                  </button>
-                )}
-                {moderationFeedback && (
-                  <div
-                    className={`moderationFeedback ${moderationFeedback.type}`}
-                    role="status"
-                  >
-                    {moderationFeedback.text}
-                  </div>
-                )}
-              </div>
-            )}
+            {canModerate(profileOpen.platform) &&
+              (!auth[profileOpen.platform]?.moderationReady ||
+                moderationFeedback) && (
+                <div className="userProfileModeration">
+                  {!auth[profileOpen.platform]?.moderationReady && (
+                    <a
+                      className="moderationReconnect"
+                      href={`/api/auth/${profileOpen.platform}/start${popupMode ? "?popup=1" : ""}`}
+                    >
+                      Reconectar para ativar moderação
+                    </a>
+                  )}
+                  {moderationFeedback && (
+                    <div
+                      className={`moderationFeedback ${moderationFeedback.type}`}
+                      role="status"
+                    >
+                      {moderationFeedback.text}
+                    </div>
+                  )}
+                </div>
+              )}
 
             <div className="userProfileMessagesHeader">
               <span className="userProfileMessagesTitle">
