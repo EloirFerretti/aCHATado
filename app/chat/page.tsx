@@ -166,7 +166,7 @@ export default function Home() {
   const soundInitializedRef = useRef(false);
   const lastSoundMessageKeyRef = useRef("");
   const audioContextRef = useRef<AudioContext | null>(null);
-  const avatarLookupAttemptedRef = useRef<Set<string>>(new Set());
+  const avatarLookupAttemptedRef = useRef<Map<string, number>>(new Map());
   const clickedComposerEmotesRef = useRef<
     Record<Platform, Map<string, PickerEmote>>
   >({
@@ -1492,7 +1492,8 @@ export default function Home() {
     }> = [];
 
     for (const message of messages) {
-      if (messageEmbeddedAvatar(message)) continue;
+      const embeddedAvatar = messageEmbeddedAvatar(message);
+      if (embeddedAvatar && !brokenAvatarUrls[embeddedAvatar]) continue;
 
       const raw = message.raw || {};
       const userId = String(
@@ -1519,8 +1520,9 @@ export default function Home() {
       if (!userId && !userName) continue;
 
       const key = `${message.platform}:${userId || userName.toLocaleLowerCase()}`;
-      if (avatarLookupAttemptedRef.current.has(key)) continue;
-      avatarLookupAttemptedRef.current.add(key);
+      const attemptedAt = avatarLookupAttemptedRef.current.get(key) || 0;
+      if (Date.now() - attemptedAt < 2 * 60_000) continue;
+      avatarLookupAttemptedRef.current.set(key, Date.now());
       users.push({
         platform: message.platform,
         userId: userId || undefined,
@@ -1532,7 +1534,6 @@ export default function Home() {
 
     if (!users.length) return;
 
-    let cancelled = false;
     fetch("/api/avatars", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1545,7 +1546,7 @@ export default function Home() {
           : Promise.reject(new Error("Falha ao carregar avatares")),
       )
       .then((json) => {
-        if (cancelled || !json?.avatars) return;
+        if (!json?.avatars) return;
         const avatars = json.avatars as Record<string, string>;
 
         setMessages((previous) => {
@@ -1587,11 +1588,7 @@ export default function Home() {
       .catch(() => {
         // Avatar é complementar e nunca deve interromper o chat.
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [messages, ready]);
+  }, [messages, ready, brokenAvatarUrls]);
 
   const counts = useMemo(() => {
     const countableMessages = messages.filter(
