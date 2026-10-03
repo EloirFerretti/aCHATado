@@ -140,7 +140,7 @@ async function setup(
   sendStatus = 200,
   authState: typeof auth = auth,
   channelState: Record<string, unknown> = channels,
-  messageState: typeof messages = messages,
+  messageState: unknown[] = messages,
 ) {
   const sends: Record<string, unknown>[] = [];
   const errors: string[] = [];
