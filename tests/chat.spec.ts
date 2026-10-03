@@ -128,6 +128,7 @@ async function setup(
   page: Page,
   sendStatus = 200,
   authState: typeof auth = auth,
+  channelState: Record<string, unknown> = channels,
 ) {
   const sends: Record<string, unknown>[] = [];
   const errors: string[] = [];
@@ -146,7 +147,7 @@ async function setup(
       "achatado_chat_settings",
       JSON.stringify({ mentionSound: false }),
     );
-  }, channels);
+  }, channelState);
   await page.routeWebSocket("**", (socket) => socket.close());
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
@@ -246,32 +247,50 @@ test("unified feed preserves colors, avatars, real badge formats and all emote p
   expect(errors).toEqual([]);
 });
 
-test("disconnected account replaces message controls with the connect action", async ({
-  page,
-}) => {
-  await setup(page, 200, {
-    ...auth,
-    twitch: { ...auth.twitch, connected: false },
-  });
+for (const platform of platforms)
+  test(`disconnected ${platform} account replaces message controls even without a selected channel`, async ({
+    page,
+  }) => {
+    const disconnectedAuth = {
+      ...auth,
+      [platform]: { ...auth[platform], connected: false },
+    };
+    const channelsWithoutSelectedPlatform = {
+      ...channels,
+      [platform]: null,
+    };
 
-  const connect = page.getByRole("link", {
-    name: "Conecte sua conta da Twitch para enviar mensagens",
+    await setup(
+      page,
+      200,
+      disconnectedAuth,
+      channelsWithoutSelectedPlatform,
+    );
+    await page.locator(`.platformSwitch .${platform}`).click();
+
+    const article =
+      platform === "youtube" ? "do YouTube" : `da ${platform === "twitch" ? "Twitch" : "Kick"}`;
+    const connect = page.getByRole("link", {
+      name: `Conecte sua conta ${article} para enviar mensagens`,
+    });
+    await expect(connect).toBeVisible();
+    await expect(connect).toHaveAttribute(
+      "href",
+      `/api/auth/${platform}/start`,
+    );
+    await expect(
+      page.getByRole("textbox", { name: "Mensagem", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Abrir menu de emotes" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Comandos do chat" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Enviar", exact: true }),
+    ).toHaveCount(0);
   });
-  await expect(connect).toBeVisible();
-  await expect(connect).toHaveAttribute("href", "/api/auth/twitch/start");
-  await expect(
-    page.getByRole("textbox", { name: "Mensagem", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Abrir menu de emotes" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Comandos do chat" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Enviar", exact: true }),
-  ).toHaveCount(0);
-});
 
 for (const platform of platforms)
   test(`emote insertion and ${platform} send stop at the API boundary`, async ({

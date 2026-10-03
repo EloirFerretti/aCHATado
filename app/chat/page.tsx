@@ -3476,7 +3476,7 @@ export default function Home() {
     selectedTarget && auth[selected].configured && auth[selected].connected,
   );
   const needsAccountConnection = Boolean(
-    selectedTarget && auth[selected].configured && !auth[selected].connected,
+    auth[selected].configured && !auth[selected].connected,
   );
 
   return (
