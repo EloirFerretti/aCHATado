@@ -234,31 +234,101 @@ function messageBadgeNames(message: Message) {
     .filter(Boolean);
 }
 
+const KNOWN_CHAT_BOTS = new Set([
+  "nightbot",
+  "streamelements",
+  "streamlabs",
+  "streamlabsbot",
+  "moobot",
+  "fossabot",
+  "sery_bot",
+  "serybot",
+  "wizebot",
+  "botrix",
+  "botrixoficial",
+  "soundalerts",
+  "coebot",
+  "phantombot",
+  "deepbot",
+  "stay_hydrated_bot",
+]);
+
+function normalizedBotAuthorName(message: Message) {
+  return String(
+    message.raw?.chatter_user_login ||
+      message.raw?.chatter_user_name ||
+      message.raw?.sender?.username ||
+      message.raw?.sender?.slug ||
+      message.raw?.authorDetails?.displayName ||
+      message.raw?.author_details?.display_name ||
+      message.author_name ||
+      "",
+  )
+    .trim()
+    .replace(/^@/, "")
+    .toLocaleLowerCase();
+}
+
 function isBotMessage(message: Message) {
+  const raw = message.raw || {};
+  const sender = raw?.sender || {};
+  const authorDetails = raw?.authorDetails || raw?.author_details || {};
+
   if (
-    message.raw?.sender?.is_bot === true ||
-    message.raw?.sender?.isBot === true ||
-    message.raw?.authorDetails?.isBot === true ||
-    message.raw?.author_details?.is_bot === true
+    sender?.is_bot === true ||
+    sender?.isBot === true ||
+    sender?.bot === true ||
+    raw?.is_bot === true ||
+    raw?.isBot === true ||
+    raw?.bot === true ||
+    authorDetails?.isBot === true ||
+    authorDetails?.is_bot === true ||
+    authorDetails?.bot === true
   ) {
     return true;
   }
 
   const rawType = String(
-    message.raw?.type ||
-      message.raw?.message_type ||
-      message.raw?.messageType ||
+    raw?.type ||
+      raw?.message_type ||
+      raw?.messageType ||
+      raw?.event_type ||
+      raw?.eventType ||
       "",
-  ).toLowerCase();
+  )
+    .trim()
+    .toLocaleLowerCase();
 
-  return (
-    messageBadgeNames(message).some((name) =>
-      ["bot", "chatbot", "automod"].includes(name),
-    ) ||
-    rawType === "bot" ||
-    rawType === "system" ||
-    rawType === "notice"
-  );
+  if (
+    ["bot", "chatbot", "automod", "system", "notice"].some(
+      (type) => rawType === type || rawType.includes(type),
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    messageBadgeNames(message).some(
+      (name) =>
+        name === "bot" ||
+        name === "chatbot" ||
+        name === "automod" ||
+        name.includes("bot-badge") ||
+        name.includes("bot_badge"),
+    )
+  ) {
+    return true;
+  }
+
+  const authorName = normalizedBotAuthorName(message);
+  if (!authorName) return false;
+
+  if (KNOWN_CHAT_BOTS.has(authorName)) return true;
+  if (/^botrix(?:[_-].+)?$/.test(authorName)) return true;
+
+  // Nomes explicitamente terminados em "_bot" ou "-bot" são tratados como bots.
+  // Evita classificar palavras comuns que apenas terminem com as letras "bot".
+  return /(?:^|[_-])bot$/.test(authorName);
 }
 
 function maskUntrustedLinks(value: string) {
@@ -2074,11 +2144,17 @@ export default function Home() {
     );
   }
 
-  const counts = useMemo(() => ({
-    twitch: messages.filter((m) => m.platform === "twitch").length,
-    kick: messages.filter((m) => m.platform === "kick").length,
-    youtube: messages.filter((m) => m.platform === "youtube").length,
-  }), [messages]);
+  const counts = useMemo(() => {
+    const countableMessages = chatSettings.hideBots
+      ? messages.filter((message) => !isBotMessage(message))
+      : messages;
+
+    return {
+      twitch: countableMessages.filter((m) => m.platform === "twitch").length,
+      kick: countableMessages.filter((m) => m.platform === "kick").length,
+      youtube: countableMessages.filter((m) => m.platform === "youtube").length,
+    };
+  }, [messages, chatSettings.hideBots]);
 
   const profileRecentMessages = useMemo(() => {
     if (!profileOpen) return [];
