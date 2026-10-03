@@ -435,6 +435,21 @@ test("mentions, profiles, reply payload, pause and clear preserve application be
   await expect(
     page.getByRole("button", { name: "Retomar rolagem do chat" }),
   ).toHaveAttribute("aria-pressed", "true");
+  const jumpButton = page.locator(".jumpLatestButton");
+  await expect(jumpButton).toBeVisible();
+  const [jumpBox, viewportBox] = await Promise.all([
+    jumpButton.boundingBox(),
+    page.locator(".messageViewport").boundingBox(),
+  ]);
+  expect(jumpBox).not.toBeNull();
+  expect(viewportBox).not.toBeNull();
+  expect(
+    Math.abs(
+      (viewportBox!.y + viewportBox!.height) -
+        (jumpBox!.y + jumpBox!.height) -
+        12,
+    ),
+  ).toBeLessThanOrEqual(2);
   await page.getByRole("button", { name: "Limpar chat", exact: true }).click();
   await expect(page.locator("article.message")).toHaveCount(0);
 });

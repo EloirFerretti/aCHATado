@@ -3792,28 +3792,29 @@ export default function Home() {
             </div>
           </div>
 
-          {autoScrollPaused && (
-            <button
-              type="button"
-              className="jumpLatestButton"
-              onClick={() => scrollToLatest("smooth")}
-              aria-label={
-                unseenMessageCount
-                  ? `Voltar às mensagens mais novas. ${unseenMessageCount} novas mensagens.`
-                  : "Voltar às mensagens mais novas."
-              }
-              title="Voltar às mensagens mais novas"
-            >
-              <span aria-hidden="true">↓</span>
-              <b>Ver mensagens mais novas</b>
-              {unseenMessageCount > 0 && (
-                <i>{unseenMessageCount > 99 ? "99+" : unseenMessageCount}</i>
-              )}
-            </button>
-          )}
+          <div className="messageViewport">
+            {autoScrollPaused && (
+              <button
+                type="button"
+                className="jumpLatestButton"
+                onClick={() => scrollToLatest("smooth")}
+                aria-label={
+                  unseenMessageCount
+                    ? `Voltar às mensagens mais novas. ${unseenMessageCount} novas mensagens.`
+                    : "Voltar às mensagens mais novas."
+                }
+                title="Voltar às mensagens mais novas"
+              >
+                <span aria-hidden="true">↓</span>
+                <b>Ver mensagens mais novas</b>
+                {unseenMessageCount > 0 && (
+                  <i>{unseenMessageCount > 99 ? "99+" : unseenMessageCount}</i>
+                )}
+              </button>
+            )}
 
-          <div
-            className="messageList"
+            <div
+              className="messageList"
             role="log"
             aria-label="Mensagens do chat unificado"
             aria-live="polite"
@@ -3917,6 +3918,7 @@ export default function Home() {
                 </div>
               )}
               <div ref={bottomRef} />
+            </div>
             </div>
           </div>
 

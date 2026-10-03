@@ -230,6 +230,12 @@ body:has(.overlayMode),
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.messageViewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .messageList {
   flex: 1;
   overflow: auto;
@@ -2313,7 +2319,7 @@ body:has(.overlayMode),
   line-height: 16px;
 }
 .chatShell .jumpLatestButton {
-  top: 80px;
+  bottom: 12px;
   border-color: #c0c1ff4d;
   background: #191b23f5;
   color: var(--primary);
@@ -2520,7 +2526,7 @@ body:has(.overlayMode),
     flex-wrap: wrap;
   }
   .chatShell .jumpLatestButton {
-    top: 110px;
+    bottom: 10px;
   }
 }
 @media (max-height: 500px) {
