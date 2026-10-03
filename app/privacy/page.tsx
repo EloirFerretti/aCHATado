@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -9,7 +10,7 @@ export default function PrivacyPage() {
   return (
     <main className="legalPage">
       <div className="legalCard">
-        <a className="legalBack" href="/">← Voltar ao aCHATado</a>
+        <Link className="legalBack" href="/">← Voltar ao aCHATado</Link>
         <h1>Política de Privacidade</h1>
         <p className="legalUpdated">Última atualização: 1º de outubro de 2026</p>
 

@@ -1,860 +1,73 @@
 "use client";
 
-import { FormEvent, PointerEvent, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  PointerEvent,
+  WheelEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-type Platform = "twitch" | "kick" | "youtube";
-type MessageBadge = {
-  set_id?: string;
-  setId?: string;
-  id?: string;
-  info?: string;
-  type?: string;
-  text?: string;
-  count?: number;
-  name?: string;
-  image_url?: string;
-  metadata?: {
-    level?: number;
-    [key: string]: unknown;
-  };
-};
-
-type TwitchBadgeCatalogEntry = {
-  setId: string;
-  id: string;
-  title: string;
-  description?: string;
-  imageUrl: string;
-};
-
-type KickSubscriberBadge = {
-  id: number;
-  months: number;
-  imageUrl: string;
-};
-
-type Message = {
-  id?: number;
-  platform: Platform;
-  platform_message_id: string;
-  channel_id?: string | null;
-  author_id?: string | null;
-  author_name: string;
-  author_avatar?: string | null;
-  author_color?: string | null;
-  message: string;
-  created_at: string;
-  badges?: MessageBadge[];
-  raw?: any;
-};
-
-type ReplyTarget = {
-  platform: "twitch" | "kick";
-  messageId: string;
-  authorName: string;
-  message: string;
-  channelId: string | null;
-};
-
-type UserProfileTarget = {
-  platform: Platform;
-  authorId: string | null;
-  authorName: string;
-  authorAvatar: string | null;
-  authorColor: string | null;
-  profileUrl: string | null;
-};
-
-type ModerationAction = "ban" | "timeout" | "unban" | "delete_message";
-type ModerationRole = "owner" | "moderator" | "none" | "unknown";
-type FeedFontSize = "small" | "medium" | "large";
-type ChatSettings = {
-  compactMode: boolean;
-  showPlatformBadges: boolean;
-  feedFontSize: FeedFontSize;
-  showTimestamps: boolean;
-  hideBots: boolean;
-  blockLinks: boolean;
-  newMessageSound: boolean;
-  mentionSound: boolean;
-};
-type ResolvedChannel = {
-  platform: Platform;
-  input: string;
-  channelId: string;
-  channelName: string;
-  avatar?: string | null;
-  live?: boolean;
-  liveChatId?: string | null;
-  videoId?: string | null;
-  subscriptionReady?: boolean;
-  note?: string;
-};
-type AuthInfo = Record<
+import {
   Platform,
-  {
-    connected: boolean;
-    configured: boolean;
-    userId?: string;
-    userName?: string;
-    avatar?: string;
-    moderationReady?: boolean;
-    missingModerationScopes?: string[];
-  }
->;
-type ChannelInputs = Record<Platform, string>;
-type ChannelMap = Partial<Record<Platform, ResolvedChannel>>;
-type ChannelErrors = Partial<Record<Platform, string>>;
-type EmoteDefinition = {
-  code: string;
-  url: string;
-  provider: "bttv" | "ffz" | "7tv";
-  animated?: boolean;
-  zeroWidth?: boolean;
-};
-type YouTubeEmote = {
-  shortcut: string;
-  url: string;
-  custom: boolean;
-};
-type PickerProvider = "all" | "twitch" | "kick" | "youtube" | "bttv" | "ffz" | "7tv";
-type PickerCategory =
-  | "user"
-  | "channel"
-  | "official"
-  | "kick-emotes"
-  | "kick-global"
-  | "thirdparty";
-type PickerEmote = {
-  id?: string;
-  code: string;
-  name?: string;
-  url?: string;
-  provider: Exclude<PickerProvider, "all">;
-  category: PickerCategory;
-  scope: "global" | "channel" | "user";
-  animated?: boolean;
-  zeroWidth?: boolean;
-  native?: boolean;
-  emoteType?: string;
-  tier?: string;
-  requiresSubscription?: boolean;
-  locked?: boolean;
-  lockReason?: string;
-};
-
-const platforms: Platform[] = ["twitch", "kick", "youtube"];
-const labels: Record<Platform, string> = { twitch: "Twitch", kick: "Kick", youtube: "YouTube" };
-const initials: Record<Platform, string> = { twitch: "T", kick: "K", youtube: "Y" };
-const placeholders: Record<Platform, string> = {
-  twitch: "ex.: gaules",
-  kick: "ex.: xqc",
-  youtube: "ex.: @CazéTV",
-};
-const emptyAuth: AuthInfo = {
-  twitch: { connected: false, configured: false },
-  kick: { connected: false, configured: false },
-  youtube: { connected: false, configured: false },
-};
-const emptyInputs: ChannelInputs = { twitch: "", kick: "", youtube: "" };
-const defaultChatSettings: ChatSettings = {
-  compactMode: false,
-  showPlatformBadges: true,
-  feedFontSize: "medium",
-  showTimestamps: true,
-  hideBots: false,
-  blockLinks: false,
-  newMessageSound: false,
-  mentionSound: true,
-};
-const CHAT_SETTINGS_STORAGE_KEY = "achatado_chat_settings";
-
-function normalizeChatSettings(value: unknown): ChatSettings {
-  const raw =
-    value && typeof value === "object"
-      ? (value as Partial<ChatSettings>)
-      : {};
-  const feedFontSize: FeedFontSize =
-    raw.feedFontSize === "small" ||
-    raw.feedFontSize === "medium" ||
-    raw.feedFontSize === "large"
-      ? raw.feedFontSize
-      : defaultChatSettings.feedFontSize;
-
-  return {
-    compactMode:
-      typeof raw.compactMode === "boolean"
-        ? raw.compactMode
-        : defaultChatSettings.compactMode,
-    showPlatformBadges:
-      typeof raw.showPlatformBadges === "boolean"
-        ? raw.showPlatformBadges
-        : defaultChatSettings.showPlatformBadges,
-    feedFontSize,
-    showTimestamps:
-      typeof raw.showTimestamps === "boolean"
-        ? raw.showTimestamps
-        : defaultChatSettings.showTimestamps,
-    hideBots:
-      typeof raw.hideBots === "boolean"
-        ? raw.hideBots
-        : defaultChatSettings.hideBots,
-    blockLinks:
-      typeof raw.blockLinks === "boolean"
-        ? raw.blockLinks
-        : defaultChatSettings.blockLinks,
-    newMessageSound:
-      typeof raw.newMessageSound === "boolean"
-        ? raw.newMessageSound
-        : defaultChatSettings.newMessageSound,
-    mentionSound:
-      typeof raw.mentionSound === "boolean"
-        ? raw.mentionSound
-        : defaultChatSettings.mentionSound,
-  };
-}
-
-function messageBadgeNames(message: Message) {
-  return [
-    ...(message.badges || []).map((badge) =>
-      String(badge.set_id || badge.setId || badge.type || badge.name || ""),
-    ),
-    ...(Array.isArray(message.raw?.sender?.identity?.badges)
-      ? message.raw.sender.identity.badges.map((badge: any) =>
-          String(badge?.type || badge?.name || badge?.text || ""),
-        )
-      : []),
-    ...(Array.isArray(message.raw?.sender?.identity?.badges_v2)
-      ? message.raw.sender.identity.badges_v2.map((badge: any) =>
-          String(badge?.type || badge?.name || badge?.text || ""),
-        )
-      : []),
-  ]
-    .map((name) => name.toLowerCase().replace(/[^a-z0-9_-]/g, ""))
-    .filter(Boolean);
-}
-
-const KNOWN_CHAT_BOTS = new Set([
-  "nightbot",
-  "streamelements",
-  "streamlabs",
-  "streamlabsbot",
-  "moobot",
-  "fossabot",
-  "sery_bot",
-  "serybot",
-  "wizebot",
-  "botrix",
-  "botrixoficial",
-  "soundalerts",
-  "coebot",
-  "phantombot",
-  "deepbot",
-  "stay_hydrated_bot",
-]);
-
-function normalizedBotAuthorName(message: Message) {
-  return String(
-    message.raw?.chatter_user_login ||
-      message.raw?.chatter_user_name ||
-      message.raw?.sender?.username ||
-      message.raw?.sender?.slug ||
-      message.raw?.authorDetails?.displayName ||
-      message.raw?.author_details?.display_name ||
-      message.author_name ||
-      "",
-  )
-    .trim()
-    .replace(/^@/, "")
-    .toLocaleLowerCase();
-}
-
-function isBotMessage(message: Message) {
-  const raw = message.raw || {};
-  const sender = raw?.sender || {};
-  const authorDetails = raw?.authorDetails || raw?.author_details || {};
-
-  if (
-    sender?.is_bot === true ||
-    sender?.isBot === true ||
-    sender?.bot === true ||
-    raw?.is_bot === true ||
-    raw?.isBot === true ||
-    raw?.bot === true ||
-    authorDetails?.isBot === true ||
-    authorDetails?.is_bot === true ||
-    authorDetails?.bot === true
-  ) {
-    return true;
-  }
-
-  const rawType = String(
-    raw?.type ||
-      raw?.message_type ||
-      raw?.messageType ||
-      raw?.event_type ||
-      raw?.eventType ||
-      "",
-  )
-    .trim()
-    .toLocaleLowerCase();
-
-  if (
-    ["bot", "chatbot", "automod", "system", "notice"].some(
-      (type) => rawType === type || rawType.includes(type),
-    )
-  ) {
-    return true;
-  }
-
-  if (
-    messageBadgeNames(message).some(
-      (name) =>
-        name === "bot" ||
-        name === "chatbot" ||
-        name === "automod" ||
-        name.includes("bot-badge") ||
-        name.includes("bot_badge"),
-    )
-  ) {
-    return true;
-  }
-
-  const authorName = normalizedBotAuthorName(message);
-  if (!authorName) return false;
-
-  if (KNOWN_CHAT_BOTS.has(authorName)) return true;
-  if (/^botrix(?:[_-].+)?$/.test(authorName)) return true;
-
-  // Nomes explicitamente terminados em "_bot" ou "-bot" são tratados como bots.
-  // Evita classificar palavras comuns que apenas terminem com as letras "bot".
-  return /(?:^|[_-])bot$/.test(authorName);
-}
-
-const CHAT_LINK_PATTERN =
-  /(?:https?:\/\/|www\.)[^\s<]+|\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}(?::\d{2,5})?(?:\/[^\s<]*)?/gi;
-
-function maskUntrustedLinks(value: string) {
-  return value.replace(CHAT_LINK_PATTERN, "[link oculto]");
-}
-
-function trimChatLinkPunctuation(value: string) {
-  const match = value.match(/^(.*?)([),.!?;:]+)?$/);
-  return {
-    link: match?.[1] || value,
-    trailing: match?.[2] || "",
-  };
-}
-
-function chatLinkHref(value: string) {
-  const normalized = value.trim();
-  return /^https?:\/\//i.test(normalized)
-    ? normalized
-    : `https://${normalized}`;
-}
-
-const pickerProviderLabels: Record<PickerProvider, string> = {
-  all: "Todos",
-  twitch: "Twitch",
-  kick: "Kick",
-  youtube: "YouTube",
-  bttv: "BTTV",
-  ffz: "FFZ",
-  "7tv": "7TV",
-};
-const pickerCategoryLabels: Record<PickerCategory, string> = {
-  user: "Seus emotes",
-  channel: "Canal",
-  official: "Oficiais",
-  "kick-emotes": "Emotes",
-  "kick-global": "Global",
-  thirdparty: "Terceiros",
-};
-
-function kickNativePickerEmotes(payload: unknown): PickerEmote[] {
-  if (!Array.isArray(payload)) return [];
-
-  const found = new Map<string, PickerEmote>();
-
-  for (const rawSet of payload) {
-    if (!rawSet || typeof rawSet !== "object") continue;
-
-    const set = rawSet as {
-      slug?: unknown;
-      name?: unknown;
-      type?: unknown;
-      emotes?: unknown;
-    };
-    const setLabel = String(set.slug ?? set.name ?? set.type ?? "")
-      .trim()
-      .toLowerCase();
-    const isGlobal = setLabel.startsWith("global");
-    const isEmoji = setLabel.startsWith("emoji");
-
-    const list = Array.isArray(set.emotes) ? set.emotes : [];
-    for (const rawEmote of list) {
-      if (!rawEmote || typeof rawEmote !== "object") continue;
-      const emote = rawEmote as {
-        id?: unknown;
-        name?: unknown;
-        subscribers_only?: unknown;
-        subscriber_only?: unknown;
-        is_subscriber_only?: unknown;
-      };
-
-      const id =
-        typeof emote.id === "number" || typeof emote.id === "string"
-          ? String(emote.id).trim()
-          : "";
-      const name = typeof emote.name === "string" ? emote.name.trim() : "";
-      if (!id || !name) continue;
-
-      const requiresSubscription = Boolean(
-        emote.subscribers_only ||
-          emote.subscriber_only ||
-          emote.is_subscriber_only,
-      );
-
-      found.set(`kick:${id}`, {
-        id,
-        code: name,
-        name,
-        url: `https://files.kick.com/emotes/${encodeURIComponent(id)}/fullsize`,
-        provider: "kick",
-        category: isEmoji
-          ? "kick-emotes"
-          : isGlobal
-            ? "kick-global"
-            : "channel",
-        scope: isGlobal || isEmoji ? "global" : "channel",
-        native: true,
-        emoteType: requiresSubscription
-          ? "subscriber"
-          : isEmoji
-            ? "emoji"
-            : isGlobal
-              ? "global"
-              : "channel",
-        requiresSubscription,
-      });
-    }
-  }
-
-  const categoryOrder: Record<PickerCategory, number> = {
-    user: 0,
-    channel: 1,
-    "kick-emotes": 2,
-    "kick-global": 3,
-    official: 4,
-    thirdparty: 5,
-  };
-
-  return [...found.values()].sort(
-    (a, b) =>
-      categoryOrder[a.category] - categoryOrder[b.category] ||
-      (a.name || a.code).localeCompare(b.name || b.code),
-  );
-}
-
-function kickMessageWithNativeEmotes(
-  value: string,
-  emotes: PickerEmote[],
-) {
-  const byCode = new Map(
-    emotes
-      .filter(
-        (emote) =>
-          emote.provider === "kick" &&
-          Boolean(emote.native) &&
-          Boolean(emote.id) &&
-          Boolean(emote.code),
-      )
-      .map((emote) => [emote.code, String(emote.id)]),
-  );
-
-  if (!byCode.size) return value;
-
-  return value
-    .split(/(\s+)/)
-    .map((part) => {
-      const id = byCode.get(part);
-      return id ? `[emote:${id}:${part}]` : part;
-    })
-    .join("");
-}
-
-function timeLabel(iso: string) {
-  try {
-    return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-  } catch {
-    return "";
-  }
-}
-function avatarFallback(name: string) {
-  return name.trim().slice(0, 1).toUpperCase() || "?";
-}
-
-function normalizeAvatarUrl(value: unknown): string | null {
-  if (typeof value === "string") {
-    const raw = value.trim();
-    if (!raw) return null;
-    if (raw.startsWith("//")) return `https:${raw}`;
-    if (raw.startsWith("/")) return `https://kick.com${raw}`;
-    if (/^https?:\/\//i.test(raw)) return raw;
-    return null;
-  }
-
-  if (value && typeof value === "object") {
-    const candidate = value as Record<string, unknown>;
-    for (const key of [
-      "url",
-      "src",
-      "profile_pic",
-      "profile_picture",
-      "profilePic",
-      "profilePicture",
-      "avatar",
-      "avatar_url",
-    ]) {
-      const normalized = normalizeAvatarUrl(candidate[key]);
-      if (normalized) return normalized;
-    }
-  }
-
-  return null;
-}
-
-function kickAvatarFromRaw(raw: any) {
-  const sender = raw?.sender || raw?.user || raw?.author || {};
-  const candidates = [
-    sender?.profile_picture,
-    sender?.profile_pic,
-    sender?.profile_pic_v2,
-    sender?.profilePicV2,
-    sender?.profilePicture,
-    sender?.profileimage,
-    sender?.profile_image,
-    sender?.avatar,
-    sender?.avatar_url,
-    raw?.profile_picture,
-    raw?.profile_pic,
-    raw?.user?.profile_pic,
-    raw?.user?.profile_picture,
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = normalizeAvatarUrl(candidate);
-    if (normalized) return normalized;
-  }
-
-  return null;
-}
-
-function messageEmbeddedAvatar(message: Message) {
-  if (message.platform === "kick") {
-    return (
-      normalizeAvatarUrl(message.author_avatar) ||
-      kickAvatarFromRaw(message.raw)
-    );
-  }
-
-  return typeof message.author_avatar === "string" && message.author_avatar.trim()
-    ? message.author_avatar.trim()
-    : null;
-}
-
-function mergedAuthorAvatar(previous: Message, incoming: Message) {
-  return messageEmbeddedAvatar(incoming) || messageEmbeddedAvatar(previous) || null;
-}
-
-function mergedMessageRaw(previousRaw: any, incomingRaw: any) {
-  if (!previousRaw || typeof previousRaw !== "object") return incomingRaw;
-  if (!incomingRaw || typeof incomingRaw !== "object") return previousRaw;
-
-  const merged: any = {
-    ...previousRaw,
-    ...incomingRaw,
-  };
-
-  for (const key of ["reply", "replies_to", "repliesTo", "reply_to", "replyTo"]) {
-    const previousValue = previousRaw?.[key];
-    const incomingValue = incomingRaw?.[key];
-    if (
-      (previousValue && typeof previousValue === "object") ||
-      (incomingValue && typeof incomingValue === "object")
-    ) {
-      merged[key] = {
-        ...(previousValue && typeof previousValue === "object"
-          ? previousValue
-          : {}),
-        ...(incomingValue && typeof incomingValue === "object"
-          ? incomingValue
-          : {}),
-      };
-    } else if (incomingValue != null || previousValue != null) {
-      merged[key] = incomingValue ?? previousValue;
-    }
-  }
-
-  if (previousRaw?.message || incomingRaw?.message) {
-    merged.message = {
-      ...(previousRaw?.message && typeof previousRaw.message === "object"
-        ? previousRaw.message
-        : {}),
-      ...(incomingRaw?.message && typeof incomingRaw.message === "object"
-        ? incomingRaw.message
-        : {}),
-    };
-  }
-
-  if (previousRaw?.sender || incomingRaw?.sender) {
-    const previousSender =
-      previousRaw?.sender && typeof previousRaw.sender === "object"
-        ? previousRaw.sender
-        : {};
-    const incomingSender =
-      incomingRaw?.sender && typeof incomingRaw.sender === "object"
-        ? incomingRaw.sender
-        : {};
-    merged.sender = {
-      ...previousSender,
-      ...incomingSender,
-    };
-
-    const previousIdentity =
-      previousSender?.identity && typeof previousSender.identity === "object"
-        ? previousSender.identity
-        : {};
-    const incomingIdentity =
-      incomingSender?.identity && typeof incomingSender.identity === "object"
-        ? incomingSender.identity
-        : {};
-
-    const previousBadges = Array.isArray(previousIdentity?.badges)
-      ? previousIdentity.badges
-      : [];
-    const incomingBadges = Array.isArray(incomingIdentity?.badges)
-      ? incomingIdentity.badges
-      : [];
-    const previousBadgesV2 = Array.isArray(previousIdentity?.badges_v2)
-      ? previousIdentity.badges_v2
-      : [];
-    const incomingBadgesV2 = Array.isArray(incomingIdentity?.badges_v2)
-      ? incomingIdentity.badges_v2
-      : [];
-
-    merged.sender.identity = {
-      ...previousIdentity,
-      ...incomingIdentity,
-      badges: incomingBadges.length ? incomingBadges : previousBadges,
-      badges_v2: incomingBadgesV2.length ? incomingBadgesV2 : previousBadgesV2,
-    };
-  }
-
-  return merged;
-}
-
-function cleanReplyPreview(value: unknown) {
-  return String(value || "")
-    .replace(/\[emote:[^:\]]+:([^\]]+)\]/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function messageReplyInfo(message: Message): ReplyTarget | null {
-  const raw = message.raw || {};
-
-  if (message.platform === "twitch") {
-    const reply =
-      raw?.reply ||
-      raw?.message?.reply ||
-      raw?.event?.reply ||
-      raw?.data?.reply ||
-      null;
-
-    const messageId = String(
-      reply?.parent_message_id ||
-        reply?.parentMessageId ||
-        reply?.message_id ||
-        reply?.messageId ||
-        raw?.reply_parent_message_id ||
-        raw?.replyParentMessageId ||
-        "",
-    ).trim();
-
-    if (!messageId) return null;
-
-    return {
-      platform: "twitch",
-      messageId,
-      authorName: String(
-        reply?.parent_user_name ||
-          reply?.parentUserName ||
-          reply?.parent_user_login ||
-          reply?.parentUserLogin ||
-          reply?.user_name ||
-          reply?.username ||
-          "Usuário da Twitch",
-      ),
-      message: cleanReplyPreview(
-        reply?.parent_message_body ||
-          reply?.parentMessageBody ||
-          reply?.content ||
-          reply?.message ||
-          "",
-      ),
-      channelId: message.channel_id || null,
-    };
-  }
-
-  if (message.platform === "kick") {
-    const reply =
-      raw?.replies_to ||
-      raw?.repliesTo ||
-      raw?.reply_to ||
-      raw?.replyTo ||
-      raw?.reply ||
-      null;
-
-    const messageId = String(
-      reply?.message_id ||
-        reply?.messageId ||
-        reply?.id ||
-        raw?.reply_to_message_id ||
-        raw?.replyToMessageId ||
-        "",
-    ).trim();
-
-    if (!messageId) return null;
-
-    const sender =
-      reply?.sender ||
-      reply?.user ||
-      reply?.author ||
-      {};
-
-    return {
-      platform: "kick",
-      messageId,
-      authorName: String(
-        sender?.username ||
-          sender?.channel_slug ||
-          sender?.slug ||
-          reply?.username ||
-          reply?.author_name ||
-          "Usuário da Kick",
-      ),
-      message: cleanReplyPreview(
-        reply?.content ||
-          reply?.message ||
-          reply?.body ||
-          reply?.text ||
-          "",
-      ),
-      channelId: message.channel_id || null,
-    };
-  }
-
-  return null;
-}
-
-function twitchReplyMentionPattern(message: Message) {
-  if (message.platform !== "twitch") return null;
-
-  const reply = messageReplyInfo(message);
-  const authorName = String(reply?.authorName || "")
-    .trim()
-    .replace(/^@/, "");
-
-  if (!authorName || authorName === "Usuário da Twitch") return null;
-
-  const escapedAuthor = authorName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(
-    `^\\s*@${escapedAuthor}(?:\\s*[:,.-]?\\s*)?`,
-    "i",
-  );
-}
-
-function stripTwitchReplyMention(message: Message, value: string) {
-  const pattern = twitchReplyMentionPattern(message);
-  return pattern ? value.replace(pattern, "") : value;
-}
-
-function messageDomId(platform: Platform, messageId: string) {
-  return `chat-message-${platform}-${messageId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-}
-
-function profileUrl(message: Message) {
-  if (message.platform === "twitch") {
-    const login =
-      message.raw?.chatter_user_login ||
-      message.raw?.chatter_user_name ||
-      message.author_name;
-    const value = String(login || "").trim();
-    return value
-      ? `https://www.twitch.tv/${encodeURIComponent(value.toLowerCase())}`
-      : null;
-  }
-
-  if (message.platform === "kick") {
-    const username =
-      message.raw?.sender?.username ||
-      message.raw?.sender?.slug ||
-      message.author_name;
-    const value = String(username || "").trim();
-    const profileSlug = value
-      .replace(/_+$/, "")
-      .replace(/_/g, "-");
-    return profileSlug
-      ? `https://kick.com/${encodeURIComponent(profileSlug)}`
-      : null;
-  }
-
-  const channelId =
-    message.raw?.authorDetails?.channelId ||
-    message.author_id;
-  const value = String(channelId || "").trim();
-  return value
-    ? `https://www.youtube.com/channel/${encodeURIComponent(value)}`
-    : null;
-}
-
-function sameProfileAuthor(message: Message, profile: UserProfileTarget) {
-  if (message.platform !== profile.platform) return false;
-
-  const messageAuthorId = String(message.author_id || "").trim();
-  if (profile.authorId && messageAuthorId) {
-    return messageAuthorId === profile.authorId;
-  }
-
-  return (
-    message.author_name.trim().toLocaleLowerCase() ===
-    profile.authorName.trim().toLocaleLowerCase()
-  );
-}
-
-function messageModerationRole(message: Message): "owner" | "moderator" | null {
-  if (message.platform === "youtube") {
-    const author = message.raw?.authorDetails || message.raw?.author_details || {};
-    if (author?.isChatOwner || author?.is_chat_owner) return "owner";
-    if (author?.isChatModerator || author?.is_chat_moderator) return "moderator";
-    return null;
-  }
-
-  const badgeNames = messageBadgeNames(message);
-
-  if (
-    badgeNames.some((name) =>
-      ["broadcaster", "owner", "channel_owner", "streamer"].includes(name),
-    )
-  ) {
-    return "owner";
-  }
-  if (badgeNames.some((name) => ["moderator", "mod"].includes(name))) {
-    return "moderator";
-  }
-  return null;
-}
+  MessageBadge,
+  TwitchBadgeCatalogEntry,
+  KickSubscriberBadge,
+  Message,
+  ReplyTarget,
+  UserProfileTarget,
+  ModerationAction,
+  ModerationRole,
+  FeedFontSize,
+  ChatSettings,
+  ResolvedChannel,
+  AuthInfo,
+  ChannelInputs,
+  ChannelMap,
+  ChannelErrors,
+  EmoteDefinition,
+  YouTubeEmote,
+  PickerProvider,
+  PickerEmote,
+  platforms,
+  labels,
+  emptyAuth,
+  emptyInputs,
+  defaultChatSettings,
+  CHAT_SETTINGS_STORAGE_KEY,
+  normalizeChatSettings,
+  isBotMessage,
+  CHAT_LINK_PATTERN,
+  maskUntrustedLinks,
+  trimChatLinkPunctuation,
+  chatLinkHref,
+  kickNativePickerEmotes,
+  kickMessageWithNativeEmotes,
+  timeLabel,
+  avatarFallback,
+  kickAvatarFromRaw,
+  messageEmbeddedAvatar,
+  mergedAuthorAvatar,
+  mergedMessageRaw,
+  cleanReplyPreview,
+  messageReplyInfo,
+  twitchReplyMentionPattern,
+  stripTwitchReplyMention,
+  messageDomId,
+  profileUrl,
+  sameProfileAuthor,
+  messageModerationRole,
+} from "@/components/chat/model";
+import { Icon, PlatformIcon } from "@/components/chat/icons";
+import { ChannelSidebar } from "@/components/chat/channel-sidebar";
+import { SettingsDialog } from "@/components/chat/settings-dialog";
+import { MessageCard } from "@/components/chat/message-card";
+import { EmotePicker } from "@/components/chat/emote-picker";
+import { Dialog } from "@/components/chat/dialog";
+import { YouTubeBadges } from "@/components/chat/youtube-badges";
+import { overlayUrl, overlayChannels } from "@/components/chat/overlay";
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -865,25 +78,46 @@ export default function Home() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [demo, setDemo] = useState(false);
-  const [channelInputs, setChannelInputs] = useState<ChannelInputs>(emptyInputs);
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
+  const [mentionsOpen, setMentionsOpen] = useState(false);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [moderationOpen, setModerationOpen] = useState(false);
+  const [readMentionKeys, setReadMentionKeys] = useState<string[]>([]);
+  const [mutedProfiles, setMutedProfiles] = useState<UserProfileTarget[]>([]);
+  const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
+  const [channelInputs, setChannelInputs] =
+    useState<ChannelInputs>(emptyInputs);
   const [channels, setChannels] = useState<ChannelMap>({});
   const [channelErrors, setChannelErrors] = useState<ChannelErrors>({});
-  const [thirdPartyEmotes, setThirdPartyEmotes] = useState<Record<string, EmoteDefinition>>({});
-  const [youtubeEmotes, setYoutubeEmotes] = useState<Record<string, YouTubeEmote>>({});
-  const [twitchBadgeCatalog, setTwitchBadgeCatalog] = useState<Record<string, TwitchBadgeCatalogEntry>>({});
-  const [kickSubscriberBadges, setKickSubscriberBadges] = useState<KickSubscriberBadge[]>([]);
+  const [thirdPartyEmotes, setThirdPartyEmotes] = useState<
+    Record<string, EmoteDefinition>
+  >({});
+  const [youtubeEmotes, setYoutubeEmotes] = useState<
+    Record<string, YouTubeEmote>
+  >({});
+  const [twitchBadgeCatalog, setTwitchBadgeCatalog] = useState<
+    Record<string, TwitchBadgeCatalogEntry>
+  >({});
+  const [kickSubscriberBadges, setKickSubscriberBadges] = useState<
+    KickSubscriberBadge[]
+  >([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerEmotes, setPickerEmotes] = useState<PickerEmote[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
-  const [pickerSearch, setPickerSearch] = useState("");
-  const [pickerProvider, setPickerProvider] = useState<PickerProvider>("all");
-  const [pickerScopeUpgradeRequired, setPickerScopeUpgradeRequired] = useState(false);
+  const [pickerScopeUpgradeRequired, setPickerScopeUpgradeRequired] =
+    useState(false);
   const [popupMode, setPopupMode] = useState(false);
+  const [overlayMode, setOverlayMode] = useState(false);
+  const [overlayLink, setOverlayLink] = useState("");
+  const [overlayCopied, setOverlayCopied] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [chatSettings, setChatSettings] = useState<ChatSettings>(defaultChatSettings);
-  const [settingsDraft, setSettingsDraft] = useState<ChatSettings>(defaultChatSettings);
-  const [profileOpen, setProfileOpen] = useState<UserProfileTarget | null>(null);
+  const [chatSettings, setChatSettings] =
+    useState<ChatSettings>(defaultChatSettings);
+  const [settingsDraft, setSettingsDraft] =
+    useState<ChatSettings>(defaultChatSettings);
+  const [profileOpen, setProfileOpen] = useState<UserProfileTarget | null>(
+    null,
+  );
   const [profilePosition, setProfilePosition] = useState({ x: 0, y: 0 });
   const [profileDragging, setProfileDragging] = useState(false);
   const [emotePreview, setEmotePreview] = useState<{
@@ -901,11 +135,15 @@ export default function Home() {
     type: "success" | "error";
     text: string;
   } | null>(null);
-  const [resolvingPlatform, setResolvingPlatform] = useState<Platform | null>(null);
+  const [resolvingPlatform, setResolvingPlatform] = useState<Platform | null>(
+    null,
+  );
   const [ready, setReady] = useState(false);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
-  const [brokenAvatarUrls, setBrokenAvatarUrls] = useState<Record<string, true>>({});
+  const [brokenAvatarUrls, setBrokenAvatarUrls] = useState<
+    Record<string, true>
+  >({});
   const lastId = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
@@ -928,11 +166,25 @@ export default function Home() {
   const soundInitializedRef = useRef(false);
   const lastSoundMessageKeyRef = useRef("");
   const audioContextRef = useRef<AudioContext | null>(null);
-  const clickedComposerEmotesRef = useRef<Record<Platform, Map<string, PickerEmote>>>({
+  const clickedComposerEmotesRef = useRef<
+    Record<Platform, Map<string, PickerEmote>>
+  >({
     twitch: new Map(),
     kick: new Map(),
     youtube: new Map(),
   });
+
+  useEffect(() => {
+    const close = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMentionsOpen(false);
+        setCommandsOpen(false);
+        setPickerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, []);
 
   async function loadAuth() {
     const res = await fetch("/api/auth/status", { cache: "no-store" });
@@ -1063,10 +315,12 @@ export default function Home() {
     const params = activeParams();
     params.set("after", String(after));
     params.set("limit", "120");
-    const res = await fetch(`/api/messages?${params.toString()}`, { cache: "no-store" });
+    const res = await fetch(`/api/messages?${params.toString()}`, {
+      cache: "no-store",
+    });
     if (!res.ok) return;
     const json = await res.json();
-    setDemo(!json.dbConfigured);
+    setHistoryUnavailable(!json.dbConfigured);
     const incoming: Message[] = json.messages || [];
     if (!incoming.length) return;
     setMessages((prev) => {
@@ -1110,8 +364,7 @@ export default function Home() {
 
       next.sort(
         (a, b) =>
-          new Date(a.created_at).getTime() -
-          new Date(b.created_at).getTime(),
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
       );
       return next.slice(-500);
     });
@@ -1145,7 +398,8 @@ export default function Home() {
       const json = await res.json();
       if (!res.ok) {
         throw new Error(
-          json.error || `Não foi possível identificar o canal da ${labels[platform]}.`,
+          json.error ||
+            `Não foi possível identificar o canal da ${labels[platform]}.`,
         );
       }
 
@@ -1196,13 +450,21 @@ export default function Home() {
     try {
       const savedInputs = localStorage.getItem("achatado_channel_inputs");
       const savedChannels = localStorage.getItem("achatado_channels");
-      if (savedInputs) setChannelInputs({ ...emptyInputs, ...JSON.parse(savedInputs) });
+      if (savedInputs)
+        setChannelInputs({ ...emptyInputs, ...JSON.parse(savedInputs) });
       if (savedChannels) setChannels(JSON.parse(savedChannels));
     } catch {
       // Ignora dados locais inválidos.
     }
 
     const query = new URLSearchParams(window.location.search);
+    if (query.get("overlay") === "1") {
+      setOverlayMode(true);
+      setPopupMode(true);
+      setChannels(overlayChannels(query));
+      setReady(true);
+      return;
+    }
     const isPopup = query.get("popup") === "1";
     setPopupMode(isPopup);
 
@@ -1245,6 +507,8 @@ export default function Home() {
 
   useEffect(() => {
     function syncFromStorage(event: StorageEvent) {
+      if (new URLSearchParams(window.location.search).get("overlay") === "1")
+        return;
       try {
         if (event.key === "achatado_channel_inputs" && event.newValue) {
           setChannelInputs({ ...emptyInputs, ...JSON.parse(event.newValue) });
@@ -1282,15 +546,42 @@ export default function Home() {
 
   useEffect(() => {
     if (!profileOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = profileDialogRef.current;
+    const items = () =>
+      Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), a[href]",
+        ) || [],
+      ).filter((element) => element.getClientRects().length);
+    items()[0]?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setProfileOpen(null);
+      if (event.key === "Tab") {
+        const controls = items();
+        const first = controls[0],
+          last = controls.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      previous?.focus();
+    };
   }, [profileOpen]);
 
   const channelKey = platforms
-    .map((p) => `${p}:${channels[p]?.channelId || ""}:${channels[p]?.liveChatId || ""}`)
+    .map(
+      (p) =>
+        `${p}:${channels[p]?.channelId || ""}:${channels[p]?.liveChatId || ""}`,
+    )
     .join("|");
 
   useEffect(() => {
@@ -1301,8 +592,14 @@ export default function Home() {
     }
 
     let cancelled = false;
-    fetch(`/api/emotes?channelId=${encodeURIComponent(channelId)}`, { cache: "no-store" })
-      .then(async (res) => res.ok ? res.json() : Promise.reject(new Error("Falha ao carregar emotes")))
+    fetch(`/api/emotes?channelId=${encodeURIComponent(channelId)}`, {
+      cache: "no-store",
+    })
+      .then(async (res) =>
+        res.ok
+          ? res.json()
+          : Promise.reject(new Error("Falha ao carregar emotes")),
+      )
       .then((json) => {
         if (!cancelled) setThirdPartyEmotes(json.emotes || {});
       })
@@ -1329,7 +626,9 @@ export default function Home() {
       .then(async (res) =>
         res.ok
           ? res.json()
-          : Promise.reject(new Error("Falha ao carregar badges de inscrito da Kick")),
+          : Promise.reject(
+              new Error("Falha ao carregar badges de inscrito da Kick"),
+            ),
       )
       .then((json) => {
         if (!cancelled) {
@@ -1361,7 +660,6 @@ export default function Home() {
     };
   }, [ready, channels.kick?.channelName]);
 
-
   useEffect(() => {
     const videoId = channels.youtube?.videoId;
     if (!ready || !videoId) {
@@ -1370,7 +668,6 @@ export default function Home() {
     }
 
     let cancelled = false;
-    let refreshTimer: number | undefined;
 
     const load = (force = false) => {
       const params = new URLSearchParams({ videoId });
@@ -1391,7 +688,7 @@ export default function Home() {
     };
 
     load(false);
-    refreshTimer = window.setInterval(() => load(true), 5 * 60_000);
+    const refreshTimer = window.setInterval(() => load(true), 5 * 60_000);
 
     return () => {
       cancelled = true;
@@ -1426,7 +723,6 @@ export default function Home() {
       cancelled = true;
     };
   }, [ready, channels.twitch?.channelId]);
-
 
   useEffect(() => {
     if (!ready) return;
@@ -1531,7 +827,11 @@ export default function Home() {
               if (!current) return prev;
               const nextVideoId = json.videoId || current.videoId;
               const nextLiveChatId = json.liveChatId || current.liveChatId;
-              if (nextVideoId === current.videoId && nextLiveChatId === current.liveChatId) return prev;
+              if (
+                nextVideoId === current.videoId &&
+                nextLiveChatId === current.liveChatId
+              )
+                return prev;
               const next = {
                 ...prev,
                 youtube: {
@@ -1563,7 +863,10 @@ export default function Home() {
             const fallbackJson = await fallback.json().catch(() => null);
 
             if (fallback.status === 429 || fallbackJson?.quotaExceeded) {
-              delay = Math.max(30 * 60_000, Number(fallbackJson?.retryAfterMs || 0));
+              delay = Math.max(
+                30 * 60_000,
+                Number(fallbackJson?.retryAfterMs || 0),
+              );
             } else {
               delay = Math.max(
                 json.rateLimited ? 15_000 : 10_000,
@@ -1584,9 +887,10 @@ export default function Home() {
             }),
           });
           const fallbackJson = await fallback.json().catch(() => null);
-          delay = fallback.status === 429 || fallbackJson?.quotaExceeded
-            ? Math.max(30 * 60_000, Number(fallbackJson?.retryAfterMs || 0))
-            : Math.max(10_000, Number(fallbackJson?.retryAfterMs || 0));
+          delay =
+            fallback.status === 429 || fallbackJson?.quotaExceeded
+              ? Math.max(30 * 60_000, Number(fallbackJson?.retryAfterMs || 0))
+              : Math.max(10_000, Number(fallbackJson?.retryAfterMs || 0));
         }
       } catch {
         delay = 15_000;
@@ -1618,8 +922,7 @@ export default function Home() {
     if (!slug) return;
 
     const PUSHER_KEY = "32cbd69e4b950bf97679";
-    const PUSHER_URL =
-      `wss://ws-us2.pusher.com/app/${PUSHER_KEY}?protocol=7&client=js&version=8.4.0&flash=false`;
+    const PUSHER_URL = `wss://ws-us2.pusher.com/app/${PUSHER_KEY}?protocol=7&client=js&version=8.4.0&flash=false`;
 
     let cancelled = false;
     let socket: WebSocket | null = null;
@@ -1778,7 +1081,8 @@ export default function Home() {
       };
 
       ws.onmessage = (event) => {
-        if (cancelled || socket !== ws || typeof event.data !== "string") return;
+        if (cancelled || socket !== ws || typeof event.data !== "string")
+          return;
 
         try {
           const frame = JSON.parse(event.data);
@@ -1882,7 +1186,13 @@ export default function Home() {
 
   useEffect(() => {
     const channel = channels.twitch;
-    if (!ready || !channel?.channelId || !auth.twitch.connected || !auth.twitch.configured) return;
+    if (
+      !ready ||
+      !channel?.channelId ||
+      !auth.twitch.connected ||
+      !auth.twitch.configured
+    )
+      return;
 
     const events = new EventSource(
       `/api/twitch/stream?channelId=${encodeURIComponent(channel.channelId)}`,
@@ -1892,7 +1202,12 @@ export default function Home() {
     events.addEventListener("error", () => undefined);
 
     return () => events.close();
-  }, [ready, channels.twitch?.channelId, auth.twitch.connected, auth.twitch.configured]);
+  }, [
+    ready,
+    channels.twitch?.channelId,
+    auth.twitch.connected,
+    auth.twitch.configured,
+  ]);
 
   useEffect(() => {
     if (!ready || !autoResolveAfterAuth.current) return;
@@ -1903,7 +1218,6 @@ export default function Home() {
     }
     autoResolveAfterAuth.current = null;
     resolveChannel(platform);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     ready,
     auth.twitch.connected,
@@ -1959,6 +1273,7 @@ export default function Home() {
 
   function clearChat() {
     setMessages([]);
+    setPinnedMessage(null);
     setReplyingTo(null);
     setProfileOpen(null);
     setUnseenMessageCount(0);
@@ -2029,6 +1344,8 @@ export default function Home() {
   const visibleMessageCount = messages.reduce((count, message) => {
     if (filter !== "all" && message.platform !== filter) return count;
     if (chatSettings.hideBots && isBotMessage(message)) return count;
+    if (mutedProfiles.some((profile) => sameProfileAuthor(message, profile)))
+      return count;
     return count + 1;
   }, 0);
 
@@ -2075,9 +1392,12 @@ export default function Home() {
       messages.filter(
         (message) =>
           (filter === "all" || message.platform === filter) &&
+          !mutedProfiles.some((profile) =>
+            sameProfileAuthor(message, profile),
+          ) &&
           (!chatSettings.hideBots || !isBotMessage(message)),
       ),
-    [messages, filter, chatSettings.hideBots],
+    [messages, filter, chatSettings.hideBots, mutedProfiles],
   );
 
   useEffect(() => {
@@ -2095,6 +1415,8 @@ export default function Home() {
     lastSoundMessageKeyRef.current = key;
 
     if (chatSettings.hideBots && isBotMessage(latest)) return;
+    if (mutedProfiles.some((profile) => sameProfileAuthor(latest, profile)))
+      return;
 
     const mentioned =
       chatSettings.mentionSound && messageMentionsConnectedAccount(latest);
@@ -2112,6 +1434,7 @@ export default function Home() {
     auth.twitch.userName,
     auth.kick.userName,
     auth.youtube.userName,
+    mutedProfiles,
   ]);
 
   const knownAuthorAvatars = useMemo(() => {
@@ -2143,9 +1466,7 @@ export default function Home() {
 
     const name = message.author_name.trim().toLocaleLowerCase();
     if (name) {
-      const byName = knownAuthorAvatars.get(
-        `${message.platform}:name:${name}`,
-      );
+      const byName = knownAuthorAvatars.get(`${message.platform}:name:${name}`);
       if (byName && !brokenAvatarUrls[byName]) return byName;
     }
 
@@ -2160,16 +1481,18 @@ export default function Home() {
   }
 
   const counts = useMemo(() => {
-    const countableMessages = chatSettings.hideBots
-      ? messages.filter((message) => !isBotMessage(message))
-      : messages;
+    const countableMessages = messages.filter(
+      (message) =>
+        (!chatSettings.hideBots || !isBotMessage(message)) &&
+        !mutedProfiles.some((profile) => sameProfileAuthor(message, profile)),
+    );
 
     return {
       twitch: countableMessages.filter((m) => m.platform === "twitch").length,
       kick: countableMessages.filter((m) => m.platform === "kick").length,
       youtube: countableMessages.filter((m) => m.platform === "youtube").length,
     };
-  }, [messages, chatSettings.hideBots]);
+  }, [messages, chatSettings.hideBots, mutedProfiles]);
 
   const profileRecentMessages = useMemo(() => {
     if (!profileOpen) return [];
@@ -2179,7 +1502,9 @@ export default function Home() {
       .reverse();
   }, [messages, profileOpen]);
 
-  const activeChannelCount = platforms.filter((p) => channels[p]?.channelId).length;
+  const activeChannelCount = platforms.filter(
+    (p) => channels[p]?.channelId,
+  ).length;
 
   function openSettings() {
     setSettingsDraft(chatSettings);
@@ -2199,9 +1524,7 @@ export default function Home() {
 
     if (normalized.newMessageSound || normalized.mentionSound) {
       try {
-        const context =
-          audioContextRef.current ||
-          new window.AudioContext();
+        const context = audioContextRef.current || new window.AudioContext();
         audioContextRef.current = context;
         if (context.state === "suspended") void context.resume();
       } catch {
@@ -2218,9 +1541,7 @@ export default function Home() {
 
   function playNotificationTone(kind: "message" | "mention") {
     try {
-      const context =
-        audioContextRef.current ||
-        new window.AudioContext();
+      const context = audioContextRef.current || new window.AudioContext();
       audioContextRef.current = context;
       if (context.state === "suspended") void context.resume();
 
@@ -2233,8 +1554,14 @@ export default function Home() {
         oscillator.frequency.exponentialRampToValueAtTime(1180, now + 0.12);
       }
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(kind === "mention" ? 0.12 : 0.07, now + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + (kind === "mention" ? 0.24 : 0.13));
+      gain.gain.exponentialRampToValueAtTime(
+        kind === "mention" ? 0.12 : 0.07,
+        now + 0.012,
+      );
+      gain.gain.exponentialRampToValueAtTime(
+        0.0001,
+        now + (kind === "mention" ? 0.24 : 0.13),
+      );
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start(now);
@@ -2261,7 +1588,9 @@ export default function Home() {
 
       return (
         content.includes(`@${userName}`) ||
-        content.split(/\s+/).some((part) => part.replace(/^@/, "") === userName) ||
+        content
+          .split(/\s+/)
+          .some((part) => part.replace(/^@/, "") === userName) ||
         replyAuthor === userName
       );
     });
@@ -2304,18 +1633,10 @@ export default function Home() {
   function messageMentionAliases(message: Message) {
     const aliases = [
       message.author_name,
-      message.platform === "twitch"
-        ? message.raw?.chatter_user_login
-        : null,
-      message.platform === "twitch"
-        ? message.raw?.chatter_user_name
-        : null,
-      message.platform === "kick"
-        ? message.raw?.sender?.username
-        : null,
-      message.platform === "kick"
-        ? message.raw?.sender?.slug
-        : null,
+      message.platform === "twitch" ? message.raw?.chatter_user_login : null,
+      message.platform === "twitch" ? message.raw?.chatter_user_name : null,
+      message.platform === "kick" ? message.raw?.sender?.username : null,
+      message.platform === "kick" ? message.raw?.sender?.slug : null,
       message.platform === "youtube"
         ? message.raw?.authorDetails?.displayName
         : null,
@@ -2383,7 +1704,10 @@ export default function Home() {
       return {
         platform,
         authorId,
-        authorName: String(auth[platform]?.userName || userName).replace(/^@/, ""),
+        authorName: String(auth[platform]?.userName || userName).replace(
+          /^@/,
+          "",
+        ),
         authorAvatar: auth[platform]?.avatar || null,
         authorColor: null,
         profileUrl: mentionProfileUrl(platform, userName, authorId),
@@ -2454,7 +1778,10 @@ export default function Home() {
     target.classList.remove("replyTargetFlash");
     requestAnimationFrame(() => {
       target.classList.add("replyTargetFlash");
-      window.setTimeout(() => target.classList.remove("replyTargetFlash"), 1400);
+      window.setTimeout(
+        () => target.classList.remove("replyTargetFlash"),
+        1400,
+      );
     });
   }
 
@@ -2475,7 +1802,9 @@ export default function Home() {
       throw new Error(`Canal da ${labels[options.platform]} não identificado.`);
     }
     if (!auth[options.platform]?.connected) {
-      throw new Error(`Conecte sua conta da ${labels[options.platform]} antes de moderar.`);
+      throw new Error(
+        `Conecte sua conta da ${labels[options.platform]} antes de moderar.`,
+      );
     }
     if (!canModerate(options.platform)) {
       throw new Error(
@@ -2603,7 +1932,11 @@ export default function Home() {
     let reason = "";
 
     if (action === "ban") {
-      if (!window.confirm(`Banir ${profileOpen.authorName} permanentemente da ${labels[profileOpen.platform]}?`)) {
+      if (
+        !window.confirm(
+          `Banir ${profileOpen.authorName} permanentemente da ${labels[profileOpen.platform]}?`,
+        )
+      ) {
         return;
       }
       reason = window.prompt("Motivo do ban (opcional):", "")?.trim() || "";
@@ -2720,7 +2053,9 @@ export default function Home() {
       username = match[1];
       reason = match[2]?.trim() || "";
     } else {
-      match = command.match(/^\/timeout\s+@?(\S+)\s+(\d+(?:[.,]\d+)?)(?:\s+(.+))?$/i);
+      match = command.match(
+        /^\/timeout\s+@?(\S+)\s+(\d+(?:[.,]\d+)?)(?:\s+(.+))?$/i,
+      );
       if (match) {
         action = "timeout";
         username = match[1];
@@ -2798,15 +2133,25 @@ export default function Home() {
 
     const target = channels[selected];
     if (!target?.channelId) {
-      setError(`Informe e identifique primeiro o canal da ${labels[selected]}.`);
+      setError(
+        `Informe e identifique primeiro o canal da ${labels[selected]}.`,
+      );
       return;
     }
     if (!auth[selected]?.configured) {
-      setError(`A API da ${labels[selected]} ainda não foi configurada no servidor.`);
+      setError(
+        `A API da ${labels[selected]} ainda não foi configurada no servidor.`,
+      );
       return;
     }
     if (!auth[selected]?.connected) {
-      window.location.href = `/api/auth/${selected}/start`;
+      // OAuth starts on the server and requires a full navigation.
+      window.location.assign(
+        new URL(
+          `/api/auth/${selected}/start${popupMode ? "?popup=1" : ""}`,
+          window.location.origin,
+        ).href,
+      );
       return;
     }
 
@@ -2835,7 +2180,8 @@ export default function Home() {
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Não foi possível enviar a mensagem.");
+      if (!res.ok)
+        throw new Error(json.error || "Não foi possível enviar a mensagem.");
 
       if (selected === "youtube" && (json.liveChatId || json.videoId)) {
         setChannels((prev) => {
@@ -2859,7 +2205,9 @@ export default function Home() {
       composerEditorRef.current?.replaceChildren();
       setReplyingTo(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao enviar mensagem.");
+      setError(
+        err instanceof Error ? err.message : "Falha ao enviar mensagem.",
+      );
     } finally {
       setSending(false);
     }
@@ -2897,10 +2245,22 @@ export default function Home() {
   }
 
   function openChatPopup() {
-    const width = Math.max(720, Math.min(window.screen.availWidth || 1100, 1200));
-    const height = Math.max(600, Math.min(window.screen.availHeight || 820, 900));
-    const left = Math.max(0, Math.round(((window.screen.availWidth || width) - width) / 2));
-    const top = Math.max(0, Math.round(((window.screen.availHeight || height) - height) / 2));
+    const width = Math.max(
+      720,
+      Math.min(window.screen.availWidth || 1100, 1200),
+    );
+    const height = Math.max(
+      600,
+      Math.min(window.screen.availHeight || 820, 900),
+    );
+    const left = Math.max(
+      0,
+      Math.round(((window.screen.availWidth || width) - width) / 2),
+    );
+    const top = Math.max(
+      0,
+      Math.round(((window.screen.availHeight || height) - height) / 2),
+    );
 
     const popup = window.open(
       "/chat?popup=1",
@@ -2916,8 +2276,6 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     setPickerOpen(false);
-    setPickerSearch("");
-    setPickerProvider("all");
     setPickerScopeUpgradeRequired(false);
 
     if (!ready || !selectedTarget?.channelId) {
@@ -2933,7 +2291,8 @@ export default function Home() {
           platform: selected,
           channelId: selectedTarget.channelId,
         });
-        if (selectedTarget.videoId) params.set("videoId", selectedTarget.videoId);
+        if (selectedTarget.videoId)
+          params.set("videoId", selectedTarget.videoId);
 
         const response = await fetch(`/api/emote-picker?${params.toString()}`, {
           cache: "no-store",
@@ -3026,71 +2385,6 @@ export default function Home() {
     selectedTarget?.videoId,
     auth[selected]?.connected,
   ]);
-
-  const pickerProviders = useMemo(() => {
-    const available = new Set(pickerEmotes.map((emote) => emote.provider));
-    return (["all", "twitch", "kick", "youtube", "7tv", "bttv", "ffz"] as PickerProvider[])
-      .filter((provider) => provider === "all" || available.has(provider as PickerEmote["provider"]));
-  }, [pickerEmotes]);
-
-  const filteredPickerEmotes = useMemo(() => {
-    const query = pickerSearch.trim().toLowerCase();
-    return pickerEmotes.filter((emote) => {
-      if (pickerProvider !== "all" && emote.provider !== pickerProvider) return false;
-      if (
-        query &&
-        !emote.code.toLowerCase().includes(query) &&
-        !(emote.name || "").toLowerCase().includes(query)
-      ) return false;
-      return true;
-    });
-  }, [pickerEmotes, pickerProvider, pickerSearch]);
-
-  const pickerGroups = useMemo(() => {
-    const categoryOrder: PickerCategory[] =
-      selected === "kick"
-        ? ["user", "channel", "kick-emotes", "kick-global", "official"]
-        : ["user", "channel", "official"];
-
-    const groups: Array<{
-      key: string;
-      label: string;
-      emotes: PickerEmote[];
-    }> = [];
-
-    for (const category of categoryOrder) {
-      const emotes = filteredPickerEmotes.filter(
-        (emote) => emote.category === category,
-      );
-      if (!emotes.length) continue;
-
-      groups.push({
-        key: category,
-        label:
-          category === "official"
-            ? `Oficiais da ${labels[selected]}`
-            : pickerCategoryLabels[category],
-        emotes,
-      });
-    }
-
-    const thirdPartyProviders = ["7tv", "bttv", "ffz"] as const;
-    for (const provider of thirdPartyProviders) {
-      const emotes = filteredPickerEmotes.filter(
-        (emote) =>
-          emote.category === "thirdparty" && emote.provider === provider,
-      );
-      if (!emotes.length) continue;
-
-      groups.push({
-        key: `thirdparty-${provider}`,
-        label: pickerProviderLabels[provider],
-        emotes,
-      });
-    }
-
-    return groups;
-  }, [filteredPickerEmotes, selected]);
 
   function composerPlainText(root: HTMLElement) {
     return Array.from(root.childNodes)
@@ -3190,7 +2484,8 @@ export default function Home() {
       !selection.anchorNode ||
       selection.anchorNode.nodeType !== Node.TEXT_NODE ||
       !root.contains(selection.anchorNode)
-    ) return;
+    )
+      return;
 
     const textNode = selection.anchorNode as Text;
     const offset = selection.anchorOffset;
@@ -3347,7 +2642,10 @@ export default function Home() {
     const width = 142;
     const left = Math.max(
       8,
-      Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2),
+      Math.min(
+        window.innerWidth - width - 8,
+        rect.left + rect.width / 2 - width / 2,
+      ),
     );
     const top = Math.max(8, rect.top - 112);
 
@@ -3379,7 +2677,8 @@ export default function Home() {
           ? "BTTV"
           : options.provider === "ffz"
             ? "FFZ"
-            : labels[options.provider as Platform] || options.provider.toUpperCase();
+            : labels[options.provider as Platform] ||
+              options.provider.toUpperCase();
 
     return (
       <span
@@ -3434,8 +2733,12 @@ export default function Home() {
     const root = composerEditorRef.current;
     if (!root) return;
     if (document.activeElement !== root) hydrateComposer(text);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, selectedTarget?.channelId, auth[selected]?.connected, pickerEmotes]);
+  }, [
+    selected,
+    selectedTarget?.channelId,
+    auth[selected]?.connected,
+    pickerEmotes,
+  ]);
 
   const youtubeEmotePattern = useMemo(() => {
     const codes = Object.keys(youtubeEmotes)
@@ -3483,7 +2786,8 @@ export default function Home() {
     let match: RegExpExecArray | null;
 
     while ((match = pattern.exec(textValue)) !== null) {
-      const previousCharacter = match.index > 0 ? textValue[match.index - 1] : "";
+      const previousCharacter =
+        match.index > 0 ? textValue[match.index - 1] : "";
       if (previousCharacter && /[a-zA-Z0-9._%+-]/.test(previousCharacter)) {
         continue;
       }
@@ -3619,36 +2923,41 @@ export default function Home() {
     let replyMentionRemoved = false;
     let trimFollowingText = false;
 
-    const visibleFragments = fragments.reduce((result: any[], fragment: any) => {
-      let nextFragment = fragment;
-      const fragmentText = String(fragment?.text || "");
+    const visibleFragments = fragments.reduce(
+      (result: any[], fragment: any) => {
+        let nextFragment = fragment;
+        const fragmentText = String(fragment?.text || "");
 
-      if (!replyMentionRemoved && replyMentionPattern && fragmentText) {
-        const stripped = fragmentText.replace(replyMentionPattern, "");
-        if (stripped !== fragmentText) {
-          replyMentionRemoved = true;
-          const cleaned = stripped.replace(/^\s+/, "");
-          if (!cleaned) {
-            trimFollowingText = true;
-            return result;
+        if (!replyMentionRemoved && replyMentionPattern && fragmentText) {
+          const stripped = fragmentText.replace(replyMentionPattern, "");
+          if (stripped !== fragmentText) {
+            replyMentionRemoved = true;
+            const cleaned = stripped.replace(/^\s+/, "");
+            if (!cleaned) {
+              trimFollowingText = true;
+              return result;
+            }
+            nextFragment = { ...fragment, text: cleaned };
           }
+        } else if (trimFollowingText && fragmentText) {
+          trimFollowingText = false;
+          const cleaned = fragmentText.replace(/^\s+/, "");
+          if (!cleaned && fragment?.type === "text") return result;
           nextFragment = { ...fragment, text: cleaned };
         }
-      } else if (trimFollowingText && fragmentText) {
-        trimFollowingText = false;
-        const cleaned = fragmentText.replace(/^\s+/, "");
-        if (!cleaned && fragment?.type === "text") return result;
-        nextFragment = { ...fragment, text: cleaned };
-      }
 
-      result.push(nextFragment);
-      return result;
-    }, []);
+        result.push(nextFragment);
+        return result;
+      },
+      [],
+    );
 
     return visibleFragments.map((fragment: any, index: number) => {
       if (fragment?.type === "emote" && fragment?.emote?.id) {
         const id = encodeURIComponent(String(fragment.emote.id));
-        const formats = Array.isArray(fragment.emote.format) ? fragment.emote.format : [];
+        const formats = Array.isArray(fragment.emote.format)
+          ? fragment.emote.format
+          : [];
         const format = formats.includes("animated") ? "animated" : "static";
         const url = `https://static-cdn.jtvnw.net/emoticons/v2/${id}/${format}/dark/2.0`;
         return interactiveChatEmote({
@@ -3717,7 +3026,8 @@ export default function Home() {
   }
 
   function renderKickMessage(message: Message) {
-    const rawSource = typeof message.raw?.content === "string" ? message.raw.content : "";
+    const rawSource =
+      typeof message.raw?.content === "string" ? message.raw.content : "";
     const source = shouldMaskLinks(message)
       ? maskUntrustedLinks(rawSource || message.message)
       : rawSource;
@@ -3802,9 +3112,8 @@ export default function Home() {
   function kickSubGifterBadgeTier(count: number | null) {
     const total = Math.max(0, Number(count || 0));
     const tiers = [
-      5000, 4000, 3000, 2000, 1000, 950, 900, 850, 800, 750, 700, 650,
-      600, 550, 500, 450, 400, 350, 300, 250, 200, 150, 100, 50, 25, 10,
-      5, 1,
+      5000, 4000, 3000, 2000, 1000, 950, 900, 850, 800, 750, 700, 650, 600, 550,
+      500, 450, 400, 350, 300, 250, 200, 150, 100, 50, 25, 10, 5, 1,
     ];
     return tiers.find((tier) => total >= tier) || 1;
   }
@@ -3864,7 +3173,9 @@ export default function Home() {
       .replace(/[^a-z0-9_-]/g, "");
     const fromMetadata = Number(badge.metadata?.level);
     const fromCount = Number(badge.count);
-    const fromText = String(badge.text || "").match(/(?:level|nível)\s*(\d{1,3})/i);
+    const fromText = String(badge.text || "").match(
+      /(?:level|nível)\s*(\d{1,3})/i,
+    );
 
     const candidate =
       Number.isFinite(fromMetadata) && fromMetadata > 0
@@ -3918,7 +3229,9 @@ export default function Home() {
             count: level,
             metadata: badge?.metadata || { level },
             image_url:
-              typeof badge?.image_url === "string" ? badge.image_url : undefined,
+              typeof badge?.image_url === "string"
+                ? badge.image_url
+                : undefined,
           });
           seen.add("level");
         }
@@ -3961,6 +3274,8 @@ export default function Home() {
   }
 
   function renderUserBadges(message: Message) {
+    if (message.platform === "youtube")
+      return <YouTubeBadges badges={message.badges || []} />;
     if (message.platform === "twitch") {
       const badges = (message.badges || [])
         .map((badge) => {
@@ -3971,10 +3286,10 @@ export default function Home() {
           return resolved ? { badge, resolved, key: `${setId}:${id}` } : null;
         })
         .filter(Boolean) as Array<{
-          badge: MessageBadge;
-          resolved: TwitchBadgeCatalogEntry;
-          key: string;
-        }>;
+        badge: MessageBadge;
+        resolved: TwitchBadgeCatalogEntry;
+        key: string;
+      }>;
 
       if (!badges.length) return null;
 
@@ -4012,9 +3327,7 @@ export default function Home() {
 
             const level = kickLevelBadgeNumber(badge);
             const subscriberBadge =
-              type === "subscriber"
-                ? kickSubscriberBadgeForCount(count)
-                : null;
+              type === "subscriber" ? kickSubscriberBadgeForCount(count) : null;
             const asset =
               subscriberBadge?.imageUrl ||
               kickLevelBadgeAsset(level) ||
@@ -4033,7 +3346,9 @@ export default function Home() {
                   title={
                     subscriberBadge
                       ? `${label} · badge de ${subscriberBadge.months} ${subscriberBadge.months === 1 ? "mês" : "meses"}`
-                      : type === "sub_gifter" || type === "subgifter" || type === "sub-gifter"
+                      : type === "sub_gifter" ||
+                          type === "subgifter" ||
+                          type === "sub-gifter"
                         ? `Sub Gifter · ${kickSubGifterBadgeTier(count)}+ sub gifts`
                         : level
                           ? `Nível ${level}`
@@ -4042,7 +3357,9 @@ export default function Home() {
                   aria-label={
                     subscriberBadge
                       ? `${label}, badge de ${subscriberBadge.months} ${subscriberBadge.months === 1 ? "mês" : "meses"}`
-                      : type === "sub_gifter" || type === "subgifter" || type === "sub-gifter"
+                      : type === "sub_gifter" ||
+                          type === "subgifter" ||
+                          type === "sub-gifter"
                         ? `Sub Gifter, ${kickSubGifterBadgeTier(count)} ou mais sub gifts`
                         : level
                           ? `Badge de nível ${level} da Kick`
@@ -4115,161 +3432,194 @@ export default function Home() {
 
   function renderSidebarContent() {
     return (
-      <>
-        <section className="channelSetup sidebarChannels">
-                    <div className="channelSetupHead">
-                      <div>
-                        <strong>Canais que serão mesclados</strong>
-                        <span>Digite o username, @handle ou URL. O aCHATado identifica o canal e a live automaticamente.</span>
-                      </div>
-                    </div>
-        
-                    <div className="channelGrid">
-                      {platforms.map((p) => {
-                        const channel = channels[p];
-                        const platformError = channelErrors[p];
-                        return (
-                          <div className={`channelCard ${p}`} key={p}>
-                            <div className="channelCardTitle">
-                              <span className={`platformIcon ${p}`}>{initials[p]}</span>
-                              <strong>{labels[p]}</strong>
-                            </div>
-                            <input
-                              value={channelInputs[p]}
-                              onChange={(e) => updateChannelInput(p, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  resolveChannel(p);
-                                }
-                              }}
-                              placeholder={placeholders[p]}
-                              aria-label={`Canal da ${labels[p]}`}
-                            />
-        
-                            {channel ? (
-                              <div className="channelResolved">
-                                <span className={`resolveDot ${channel.subscriptionReady === false ? "warning" : "ok"}`} />
-                                <div>
-                                  <b>{channel.channelName}</b>
-                                  <small>{channel.note || "Canal identificado."}</small>
-                                </div>
-                              </div>
-                            ) : platformError ? (
-                              <div className="channelResolved error">
-                                <span className="resolveDot bad" />
-                                <div>
-                                  <b>Não integrado</b>
-                                  <small>{platformError}</small>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="channelHint">Nenhum canal selecionado.</div>
-                            )}
-
-                            <button
-                              type="button"
-                              className={`mergeButton channelConnectButton ${p}`}
-                              onClick={() => resolveChannel(p)}
-                              disabled={
-                                !channelInputs[p].trim() ||
-                                resolvingPlatform !== null
-                              }
-                            >
-                              {resolvingPlatform === p
-                                ? "Identificando…"
-                                : channel
-                                  ? "Atualizar canal"
-                                  : `Conectar ${labels[p]}`}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                  </section>
-        
-                  <div className="sidebarTitle accountsTitle">SUAS CONTAS</div>
-                  {platforms.map((p) => (
-                    <div className="accountRow" key={p}>
-                      <span className={`platformIcon ${p}`}>{initials[p]}</span>
-                      <div className="accountText">
-                        <strong>{labels[p]}</strong>
-                        <small>
-                          {!auth[p].configured
-                            ? "API não configurada"
-                            : auth[p].connected
-                              ? auth[p].userName || "Conectado"
-                              : "Não conectado"}
-                        </small>
-                      </div>
-        
-                      {!auth[p].configured ? (
-                        <span className="tinyButton disabled">Indisponível</span>
-                      ) : auth[p].connected ? (
-                        <button className="tinyButton" onClick={() => logout(p)}>Sair</button>
-                      ) : (
-                        <a className="tinyButton" href={`/api/auth/${p}/start${popupMode ? "?popup=1" : ""}`}>Conectar</a>
-                      )}
-                    </div>
-                  ))}
-        
-      </>
+      <ChannelSidebar
+        auth={auth}
+        channels={channels}
+        inputs={channelInputs}
+        errors={channelErrors}
+        resolving={resolvingPlatform}
+        popup={popupMode}
+        onInput={updateChannelInput}
+        onResolve={resolveChannel}
+        onLogout={logout}
+      />
     );
   }
 
+  function changeFeedFont(direction: number) {
+    const sizes: FeedFontSize[] = ["small", "medium", "large"];
+    const next = {
+      ...chatSettings,
+      feedFontSize:
+        sizes[
+          Math.max(
+            0,
+            Math.min(2, sizes.indexOf(chatSettings.feedFontSize) + direction),
+          )
+        ],
+    };
+    setChatSettings(next);
+    localStorage.setItem(CHAT_SETTINGS_STORAGE_KEY, JSON.stringify(next));
+  }
+  const recentMentions = messages
+    .filter(
+      (m) =>
+        messageMentionsConnectedAccount(m) &&
+        (!chatSettings.hideBots || !isBotMessage(m)),
+    )
+    .slice(-30)
+    .reverse();
+  const unreadMentions = recentMentions.filter(
+    (m) => !readMentionKeys.includes(m.platform + ":" + m.platform_message_id),
+  ).length;
+  const canSend = Boolean(
+    selectedTarget && auth[selected].configured && auth[selected].connected,
+  );
+
   return (
     <main
-      className={`shell chatShell ${popupMode ? "popupMode" : ""} ${chatSettings.compactMode ? "compactFeed" : ""} feedFont-${chatSettings.feedFontSize}`}
+      className={`shell chatShell ${popupMode ? "popupMode" : ""} ${overlayMode ? "overlayMode" : ""} ${chatSettings.compactMode ? "compactFeed" : ""} feedFont-${chatSettings.feedFontSize}`}
     >
-      {!popupMode && <header className="topbar">
-        <div className="brand">
-          <div className="brandMark"><span>T</span><span>K</span><span>Y</span></div>
-          <div>
-            <h1>aCHATado</h1>
-            <p>Twitch + Kick + YouTube em um só chat</p>
+      {!popupMode && (
+        <header className="topbar">
+          <div className="brand">
+            <div className="brandMark">
+              <svg viewBox="0 0 32 32" aria-hidden="true">
+                <ellipse cx="16" cy="8" rx="10" ry="3" fill="currentColor" />
+                <path
+                  d="M6 9.5c4 3 16 3 20 0V24c-4 4-16 4-20 0Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </div>
+            <div>
+              <h1>aCHATado</h1>
+              <p>Twitch + Kick + YouTube em um só lugar</p>
+            </div>
           </div>
-        </div>
-        <div className="topbarActions">
-          <button
-            type="button"
-            className="topSettingsButton"
-            onClick={openSettings}
-            aria-label="Abrir configurações do chat"
-            title="Configurações do chat"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h10M18 7h2M4 17h2M10 17h10M4 12h4M12 12h8" />
-              <circle cx="16" cy="7" r="2" />
-              <circle cx="8" cy="17" r="2" />
-              <circle cx="10" cy="12" r="2" />
-            </svg>
-            <span>Configurações</span>
-          </button>
-          <div className="livePill">
-            <span className="liveDot" />
-            {activeChannelCount
-              ? `${activeChannelCount} ${activeChannelCount === 1 ? "CANAL" : "CANAIS"}`
-              : "CONFIGURAR"}
+          <div className="topbarActions">
+            <div className="notificationsWrapper">
+              <button
+                type="button"
+                className="topSettingsButton"
+                onClick={() => setMentionsOpen((v) => !v)}
+                aria-label="Menções recentes"
+                aria-expanded={mentionsOpen}
+              >
+                <Icon name="bell" />
+                {unreadMentions > 0 && <i className="notificationDot" />}
+              </button>
+              {mentionsOpen && (
+                <>
+                  <button
+                    className="popoverDismiss"
+                    type="button"
+                    aria-label="Fechar menções"
+                    onClick={() => setMentionsOpen(false)}
+                  />
+                  <section
+                    className="mentionsPopover"
+                    aria-label="Menções recentes"
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setMentionsOpen(false);
+                    }}
+                  >
+                    <header>
+                      <Icon name="at" />
+                      <strong>Menções Recentes</strong>
+                      <button
+                        type="button"
+                        onClick={() => setMentionsOpen(false)}
+                        aria-label="Fechar menções"
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </header>
+                    <div className="mentionsList">
+                      {recentMentions.length ? (
+                        recentMentions.map((m) => (
+                          <button
+                            type="button"
+                            className="mentionItem"
+                            key={m.platform + m.platform_message_id}
+                            onClick={() => {
+                              setMentionsOpen(false);
+                              setFilter("all");
+                              requestAnimationFrame(() =>
+                                jumpToMessage(
+                                  m.platform,
+                                  m.platform_message_id,
+                                ),
+                              );
+                            }}
+                          >
+                            <span className="mentionIdentity">
+                              <span className={`platformIcon ${m.platform}`}>
+                                <PlatformIcon platform={m.platform} />
+                              </span>
+                              <strong
+                                style={
+                                  m.author_color
+                                    ? { color: m.author_color }
+                                    : undefined
+                                }
+                              >
+                                {m.author_name}
+                              </strong>
+                              <time>{timeLabel(m.created_at)}</time>
+                            </span>
+                            <span className="mentionText">{m.message}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="popoverEmpty">
+                          Suas menções aparecerão aqui quando uma conta
+                          conectada for citada.
+                        </p>
+                      )}
+                    </div>
+                    <footer>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReadMentionKeys(
+                            recentMentions.map(
+                              (m) => m.platform + ":" + m.platform_message_id,
+                            ),
+                          )
+                        }
+                      >
+                        Marcar todas como lidas
+                      </button>
+                    </footer>
+                  </section>
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              className="topSettingsButton"
+              onClick={openSettings}
+              aria-label="Abrir configurações do chat"
+              title="Configurações do chat"
+            >
+              <Icon name="settings" />
+            </button>
           </div>
-        </div>
-      </header>}
-
-      {!popupMode && demo && (
-        <div className="demoBanner">
-          <strong>Modo demonstração.</strong> O banco de dados ainda não está configurado.
-        </div>
+        </header>
       )}
 
       <section className="workspace">
-        <aside className="sidebar">
-          {renderSidebarContent()}
-        </aside>
+        <aside className="sidebar">{renderSidebarContent()}</aside>
 
         <section className="chatPanel">
           <div className="chatHeader">
             <div>
-              <strong>{filter === "all" ? "Chat unificado" : `Chat da ${labels[filter]}`}</strong>
+              <strong>
+                {filter === "all"
+                  ? "Chat unificado"
+                  : `Chat da ${labels[filter]}`}
+              </strong>
               <span>{visible.length} mensagens carregadas</span>
             </div>
             <div className="chatHeaderActions">
@@ -4284,7 +3634,7 @@ export default function Home() {
                 >
                   <span className="chatFilterIcon all">∞</span>
                   <span>Todas</span>
-                  <b>{messages.length}</b>
+                  <b>{counts.twitch + counts.kick + counts.youtube}</b>
                 </button>
                 {platforms.map((platform) => (
                   <button
@@ -4296,36 +3646,13 @@ export default function Home() {
                     title={`Exibir somente mensagens da ${labels[platform]}`}
                   >
                     <span className={`chatFilterIcon ${platform}`}>
-                      {initials[platform]}
+                      <PlatformIcon platform={platform} />
                     </span>
                     <span>{labels[platform]}</span>
                     <b>{counts[platform]}</b>
                   </button>
                 ))}
               </div>
-              <button
-                type="button"
-                className="chatUtilityButton clearChatButton"
-                onClick={clearChat}
-                disabled={!messages.length}
-                title="Limpar mensagens exibidas"
-                aria-label="Limpar chat"
-              >
-                ⌫
-                <span>Limpar</span>
-              </button>
-              {!popupMode && (
-                <button
-                  type="button"
-                  className="chatUtilityButton mobileSettingsButton"
-                  onClick={openSettings}
-                  title="Configurações"
-                  aria-label="Abrir configurações do chat"
-                >
-                  ⚙
-                  <span>Configurações</span>
-                </button>
-              )}
               {popupMode ? (
                 <button
                   type="button"
@@ -4334,7 +3661,7 @@ export default function Home() {
                   title="Configurações"
                   aria-label="Abrir configurações do chat"
                 >
-                  ⚙
+                  <Icon name="settings" />
                   <span>Configurações</span>
                 </button>
               ) : (
@@ -4345,8 +3672,8 @@ export default function Home() {
                   title="Abrir chat em popup"
                   aria-label="Abrir chat em uma nova janela"
                 >
-                  ↗
-                  <span>Popup</span>
+                  <Icon name="external" />
+                  <span>Pop-up</span>
                 </button>
               )}
             </div>
@@ -4374,209 +3701,250 @@ export default function Home() {
 
           <div
             className="messageList"
+            role="log"
+            aria-label="Mensagens do chat unificado"
+            aria-live="polite"
+            aria-relevant="additions"
             ref={messageListRef}
             onScroll={handleMessageListScroll}
             onWheel={handleMessageListWheel}
           >
             <div className="messageListContent" ref={messageContentRef}>
-            {visible.map((m) => (
-              <article
-                className="message"
-                id={messageDomId(m.platform, m.platform_message_id)}
-                key={`${m.platform}-${m.platform_message_id}`}
-              >
-                <div className={`avatarRing ${m.platform}`}>
+              <div className="feedNotice">
+                <Icon name="hub" />
+                <span>
+                  {activeChannelCount
+                    ? `Feed unificado · ${platforms
+                        .filter((p) => channels[p])
+                        .map((p) => labels[p])
+                        .join(" + ")}`
+                    : "Conecte seus canais para acompanhar o chat em um só lugar."}
+                </span>
+              </div>
+              {historyUnavailable && (
+                <div className="historyNotice">
+                  Histórico indisponível neste ambiente. As mensagens recebidas
+                  ao vivo continuam no feed.
+                </div>
+              )}
+              {pinnedMessage && (
+                <div className="pinnedMessage" role="status">
+                  <Icon name="pin" />
+                  <div>
+                    <strong>{pinnedMessage.author_name}</strong>
+                    <p>{renderMessageText(pinnedMessage)}</p>
+                  </div>
                   <button
                     type="button"
-                    className="avatarProfileLink"
-                    onClick={() => openUserProfile(m)}
-                    title={`Ver perfil de ${m.author_name}`}
-                    aria-label={`Ver perfil de ${m.author_name}`}
+                    onClick={() => setPinnedMessage(null)}
+                    aria-label="Desafixar mensagem"
                   >
-                    <span className="avatarFallback" aria-hidden="true">
-                      {avatarFallback(m.author_name)}
-                    </span>
-                    {messageAvatarUrl(m) && (
-                      <img
-                        src={messageAvatarUrl(m)!}
-                        alt=""
-                        onError={(event) => {
-                          const url = event.currentTarget.src;
-                          event.currentTarget.hidden = true;
-                          markAvatarBroken(m, url);
-                        }}
-                      />
-                    )}
+                    <Icon name="close" />
                   </button>
-                  {chatSettings.showPlatformBadges && (
-                    <span className={`miniPlatform ${m.platform}`}>
-                      {initials[m.platform]}
-                    </span>
-                  )}
                 </div>
-                <div className="messageBody">
-                  {(() => {
-                    const reply = messageReplyInfo(m);
-                    if (!reply) return null;
-                    const parentMessage = messages.find(
+              )}
+              {mutedProfiles.length > 0 && (
+                <div className="mutedNotice">
+                  <span>
+                    {mutedProfiles.length} usuário(s) silenciado(s) nesta
+                    sessão.
+                  </span>
+                  <button type="button" onClick={() => setMutedProfiles([])}>
+                    Mostrar novamente
+                  </button>
+                </div>
+              )}
+              {visible.map((m) => {
+                const reply = messageReplyInfo(m);
+                const parent = reply
+                  ? messages.find(
                       (candidate) =>
                         candidate.platform === reply.platform &&
                         candidate.platform_message_id === reply.messageId,
-                    );
-                    const parentLoaded = Boolean(parentMessage);
-                    const citedAuthor =
-                      parentMessage?.author_name ||
-                      reply.authorName;
-                    const citedMessage =
-                      reply.message ||
-                      cleanReplyPreview(parentMessage?.message) ||
-                      "Mensagem original";
-
-                    return (
-                      <button
-                        type="button"
-                        className={`messageReplyContext ${m.platform} ${parentLoaded ? "clickable" : ""}`}
-                        onClick={() => {
-                          if (parentLoaded) {
-                            jumpToMessage(reply.platform, reply.messageId);
-                          }
-                        }}
-                        title={
-                          parentLoaded
-                            ? "Ir para a mensagem original"
-                            : "Mensagem original não está carregada"
-                        }
-                      >
-                        <span aria-hidden="true">↪</span>
-                        <span>
-                          <b>{citedAuthor}</b>
-                          <small>{citedMessage}</small>
-                        </span>
-                      </button>
-                    );
-                  })()}
-                  <div className="meta">
-                    {chatSettings.showPlatformBadges ? renderUserBadges(m) : null}
-                    <button
-                      type="button"
-                      className="authorProfileButton"
-                      onClick={() => openUserProfile(m)}
-                      title={`Ver perfil de ${m.author_name}`}
-                      aria-label={`Ver perfil de ${m.author_name}`}
-                    >
-                      <strong style={m.author_color ? { color: m.author_color } : undefined}>
-                        {m.author_name}
-                      </strong>
-                    </button>
-                    {chatSettings.showPlatformBadges && (
-                      <span className={`platformLabel ${m.platform}`}>
-                        {labels[m.platform]}
-                      </span>
-                    )}
-                    {chatSettings.showTimestamps && (
-                      <time>{timeLabel(m.created_at)}</time>
-                    )}
-                    {(m.platform === "twitch" || m.platform === "kick") && (
-                      <button
-                        type="button"
-                        className="messageReplyAction"
-                        onClick={() => beginReply(m)}
-                        title={`Responder a ${m.author_name}`}
-                        aria-label={`Responder a ${m.author_name}`}
-                      >
-                        ↩ <span>Responder</span>
-                      </button>
-                    )}
-                    {canModerate(m.platform) &&
-                      auth[m.platform]?.moderationReady && (
-                        <button
-                          type="button"
-                          className="messageModerationAction"
-                          onClick={() => deleteChatMessage(m)}
-                          disabled={Boolean(moderationBusy)}
-                          title={`Apagar mensagem de ${m.author_name}`}
-                          aria-label={`Apagar mensagem de ${m.author_name}`}
-                        >
-                          🗑 <span>Apagar</span>
-                        </button>
-                      )}
-                  </div>
-                  <p className="chatText">
+                    )
+                  : undefined;
+                return (
+                  <MessageCard
+                    key={m.platform + "-" + m.platform_message_id}
+                    message={m}
+                    settings={chatSettings}
+                    avatar={messageAvatarUrl(m)}
+                    mentioned={messageMentionsConnectedAccount(m)}
+                    reply={reply}
+                    parent={parent}
+                    canDelete={
+                      canModerate(m.platform) &&
+                      Boolean(auth[m.platform]?.moderationReady)
+                    }
+                    busy={Boolean(moderationBusy)}
+                    badges={renderUserBadges(m)}
+                    onProfile={() => openUserProfile(m)}
+                    onReply={() => beginReply(m)}
+                    onPin={() => setPinnedMessage(m)}
+                    onDelete={() => deleteChatMessage(m)}
+                    onJump={(target) =>
+                      jumpToMessage(target.platform, target.messageId)
+                    }
+                    onAvatarError={(url) => markAvatarBroken(m, url)}
+                  >
                     {renderMessageText(m)}
-                  </p>
-                </div>
-              </article>
-            ))}
+                  </MessageCard>
+                );
+              })}
 
-            {!activeChannelCount && (
-              <div className="emptyState">
-                Informe ao menos um canal acima para começar a mesclar os chats.
-              </div>
-            )}
-            {activeChannelCount > 0 && !visible.length && (
-              <div className="emptyState">
-                Aguardando mensagens dos canais selecionados…
-              </div>
-            )}
-            <div ref={bottomRef} />
+              {!activeChannelCount && (
+                <div className="emptyState">
+                  Selecione um canal em Plataformas para começar. Em telas
+                  menores, abra Configurações → Canais & contas.
+                </div>
+              )}
+              {activeChannelCount > 0 && !visible.length && (
+                <div className="emptyState">
+                  Aguardando mensagens dos canais selecionados…
+                </div>
+              )}
+              <div ref={bottomRef} />
             </div>
           </div>
 
-          <form className="composer" onSubmit={send}>
-            <div className="sendVia">
-              <span>Enviar pela</span>
-              <div className="platformSwitch">
-                {platforms.map((p) => (
-                  <button
-                    type="button"
-                    key={p}
-                    onClick={() => {
-                      setSelected(p);
-                      if (replyingTo?.platform !== p) setReplyingTo(null);
+          {!overlayMode && (
+            <form className="composer" onSubmit={send}>
+              <div className="composerToolbar">
+                <div className="sendVia">
+                  <span>Enviar pela:</span>
+                  <select
+                    className="mobilePlatformSelect"
+                    aria-label="Plataforma para enviar"
+                    value={selected}
+                    onChange={(event) => {
+                      const platform = event.target.value as Platform;
+                      setSelected(platform);
+                      if (replyingTo?.platform !== platform)
+                        setReplyingTo(null);
                       setPickerOpen(false);
                       setError("");
                     }}
-                    className={`${selected === p ? "selected" : ""} ${p}`}
                   >
-                    <span>{initials[p]}</span>{labels[p]}
-                    <i className={auth[p]?.connected ? "connected" : ""} />
-                  </button>
-                ))}
-              </div>
-              {selectedTarget && <span className="sendingTo">→ {selectedTarget.channelName}</span>}
-            </div>
-
-            {replyingTo && replyingTo.platform === selected && (
-              <div className={`composerReplyPreview ${selected}`}>
-                <span aria-hidden="true">↩</span>
-                <div>
-                  <strong>Respondendo a {replyingTo.authorName}</strong>
-                  <small>{replyingTo.message || "Mensagem"}</small>
+                    {platforms.map((platform) => (
+                      <option key={platform} value={platform}>
+                        {labels[platform]}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="platformSwitch">
+                    {platforms.map((p) => (
+                      <button
+                        type="button"
+                        key={p}
+                        onClick={() => {
+                          setSelected(p);
+                          if (replyingTo?.platform !== p) setReplyingTo(null);
+                          setPickerOpen(false);
+                          setError("");
+                        }}
+                        aria-pressed={selected === p}
+                        className={`${selected === p ? "selected" : ""} ${p}`}
+                      >
+                        <PlatformIcon platform={p} />
+                        {labels[p]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setReplyingTo(null)}
-                  aria-label="Cancelar resposta"
-                  title="Cancelar resposta"
-                >
-                  ×
-                </button>
+                <div className="composerTools">
+                  <div className="toolGroup">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (autoScrollPaused) scrollToLatest();
+                        else {
+                          cancelPendingAutoScroll();
+                          setAutoScrollState(true);
+                        }
+                      }}
+                      aria-pressed={autoScrollPaused}
+                      aria-label={
+                        autoScrollPaused
+                          ? "Retomar rolagem do chat"
+                          : "Pausar rolagem do chat"
+                      }
+                    >
+                      <Icon name={autoScrollPaused ? "play" : "pause"} />
+                      <span>{autoScrollPaused ? "Retomar" : "Pausar"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearChat}
+                      disabled={!messages.length}
+                      aria-label="Limpar chat"
+                    >
+                      <Icon name="trash" />
+                      <span>Limpar</span>
+                    </button>
+                  </div>
+                  <div className="toolGroup">
+                    <button
+                      type="button"
+                      onClick={() => changeFeedFont(-1)}
+                      disabled={chatSettings.feedFontSize === "small"}
+                      aria-label="Diminuir tamanho da fonte"
+                    >
+                      A-
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => changeFeedFont(1)}
+                      disabled={chatSettings.feedFontSize === "large"}
+                      aria-label="Aumentar tamanho da fonte"
+                    >
+                      A+
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="moderationTool"
+                    onClick={() => setModerationOpen(true)}
+                  >
+                    <Icon name="shield" />
+                    <span>Moderação</span>
+                  </button>
+                </div>
               </div>
-            )}
 
-            {!selectedTarget ? (
-              <div className="connectCallout">
-                Selecione o canal da {labels[selected]} acima.
-              </div>
-            ) : !auth[selected]?.configured ? (
-              <div className={`connectCallout ${selected}`}>
-                A API da {labels[selected]} precisa ser configurada no servidor.
-              </div>
-            ) : !auth[selected]?.connected ? (
-              <a className={`connectCallout ${selected}`} href={`/api/auth/${selected}/start${popupMode ? "?popup=1" : ""}`}>
-                Conectar {labels[selected]} para enviar mensagens como você
-              </a>
-            ) : (
+              {replyingTo && replyingTo.platform === selected && (
+                <div className={`composerReplyPreview ${selected}`}>
+                  <span aria-hidden="true">↩</span>
+                  <div>
+                    <strong>Respondendo a {replyingTo.authorName}</strong>
+                    <small>{replyingTo.message || "Mensagem"}</small>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo(null)}
+                    aria-label="Cancelar resposta"
+                    title="Cancelar resposta"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
+              {!canSend && (
+                <div className="composerStatus">
+                  {!selectedTarget ? (
+                    `Selecione um canal da ${labels[selected]} para enviar.`
+                  ) : !auth[selected].configured ? (
+                    `Envio pela ${labels[selected]} indisponível neste ambiente.`
+                  ) : (
+                    <a
+                      href={`/api/auth/${selected}/start${popupMode ? "?popup=1" : ""}`}
+                    >
+                      Conectar {labels[selected]} para enviar mensagens como
+                      você
+                    </a>
+                  )}
+                </div>
+              )}
               <div className="inputRow">
                 <div className="textWrap">
                   <button
@@ -4586,123 +3954,75 @@ export default function Home() {
                     aria-label="Abrir menu de emotes"
                     title="Emotes"
                   >
-                    ☺
+                    <Icon name="smile" />
                   </button>
 
-                  {pickerOpen && (
-                    <div className="emotePickerPanel">
-                      <div className="emotePickerHeader">
-                        <div>
-                          <strong>Emotes da {labels[selected]}</strong>
-                          <span>
-                            {pickerEmotes.filter((emote) => !emote.locked).length} disponíveis
-                            {pickerEmotes.some((emote) => emote.locked)
-                              ? ` · ${pickerEmotes.filter((emote) => emote.locked).length} bloqueados`
-                              : ""}
-                          </span>
-                        </div>
-                        <button type="button" onClick={() => setPickerOpen(false)} aria-label="Fechar emotes">×</button>
-                      </div>
-
-                      <input
-                        className="emotePickerSearch"
-                        value={pickerSearch}
-                        onChange={(e) => setPickerSearch(e.target.value)}
-                        placeholder="Pesquisar emote…"
-                        autoComplete="off"
-                      />
-
-                      <div className="emoteProviderTabs">
-                        {pickerProviders.map((provider) => (
-                          <button
-                            type="button"
-                            key={provider}
-                            className={pickerProvider === provider ? "active" : ""}
-                            onClick={() => setPickerProvider(provider)}
-                          >
-                            {pickerProviderLabels[provider]}
-                          </button>
-                        ))}
-                      </div>
-
-                      {selected === "twitch" && pickerScopeUpgradeRequired && (
-                        <a className="emoteScopeNotice" href={`/api/auth/twitch/start${popupMode ? "?popup=1" : ""}`}>
-                          Reconecte a Twitch para incluir emotes da sua conta e assinaturas.
-                        </a>
-                      )}
-
-                      <div className="emotePickerContent">
-                        {pickerLoading ? (
-                          <div className="emotePickerEmpty">Carregando emotes…</div>
-                        ) : filteredPickerEmotes.length === 0 ? (
-                          <div className="emotePickerEmpty">Nenhum emote encontrado.</div>
-                        ) : (
-                          pickerGroups.map((group) => (
-                            <section className="emotePickerGroup" key={group.key}>
-                              <div className="emotePickerGroupTitle">
-                                {group.label}
-                              </div>
-                              <div className="emotePickerGrid">
-                                {group.emotes.map((emote, index) => (
-                                  <button
-                                    type="button"
-                                    className={`emotePickerItem ${emote.locked ? "locked" : ""}`}
-                                    key={`${emote.provider}-${emote.id || emote.code}-${index}`}
-                                    onClick={() => {
-                                      if (!emote.locked) insertPickerEmote(emote);
-                                    }}
-                                    disabled={Boolean(emote.locked)}
-                                    aria-disabled={Boolean(emote.locked)}
-                                    title={
-                                      emote.locked
-                                        ? `${emote.code} · ${emote.lockReason || "Requer assinatura deste canal."}`
-                                        : `${emote.name || emote.code} · ${pickerProviderLabels[emote.provider]} · ${
-                                            emote.category === "thirdparty"
-                                              ? pickerProviderLabels[emote.provider]
-                                              : pickerCategoryLabels[emote.category]
-                                          }`
-                                    }
-                                  >
-                                    <span className="emoteImageWrap">
-                                      {emote.url ? (
-                                        <img src={emote.url} alt={emote.code} loading="lazy" />
-                                      ) : null}
-                                      {emote.locked && (
-                                        <span className="emoteLockBadge" aria-hidden="true">🔒</span>
-                                      )}
-                                    </span>
-                                    <span>{emote.code}</span>
-                                    <small>
-                                      {emote.locked
-                                        ? emote.tier === "3000"
-                                          ? "SUB TIER 3"
-                                          : emote.tier === "2000"
-                                            ? "SUB TIER 2"
-                                            : "SUB"
-                                        : pickerProviderLabels[emote.provider]}
-                                    </small>
-                                  </button>
-                                ))}
-                              </div>
-                            </section>
-                          ))
-                        )}
-                      </div>
+                  <button
+                    type="button"
+                    className="commandsButton"
+                    aria-label="Comandos do chat"
+                    aria-expanded={commandsOpen}
+                    onClick={() => setCommandsOpen((v) => !v)}
+                  >
+                    <Icon name="terminal" />
+                  </button>
+                  {commandsOpen && (
+                    <div className="commandsPopover">
+                      <strong>Comandos de moderação</strong>
+                      {["/timeout", "/ban", "/unban"].map((command) => (
+                        <button
+                          type="button"
+                          key={command}
+                          onClick={() => {
+                            insertPlainComposerText(command + " ");
+                            setCommandsOpen(false);
+                          }}
+                          disabled={!canSend || !canModerate(selected)}
+                        >
+                          {command}
+                        </button>
+                      ))}
+                      <small>
+                        Disponíveis para moderadores e donos do canal. /timeout
+                        usuário minutos · /ban usuário · /unban usuário
+                      </small>
+                      <button
+                        type="button"
+                        onClick={() => setCommandsOpen(false)}
+                      >
+                        Fechar
+                      </button>
                     </div>
+                  )}
+                  {pickerOpen && (
+                    <EmotePicker
+                      platform={selected}
+                      emotes={pickerEmotes}
+                      loading={pickerLoading}
+                      scopeUpgrade={pickerScopeUpgradeRequired}
+                      popup={popupMode}
+                      onInsert={insertPickerEmote}
+                      onClose={() => setPickerOpen(false)}
+                    />
                   )}
 
                   <div
                     ref={composerEditorRef}
                     className="composerRichEditor"
-                    contentEditable
+                    contentEditable={canSend}
+                    aria-disabled={!canSend}
                     suppressContentEditableWarning
                     role="textbox"
                     aria-multiline="true"
                     aria-label="Mensagem"
                     data-placeholder={
                       replyingTo?.platform === selected
-                        ? "Responder a " + replyingTo.authorName + " como " + (auth[selected]?.userName || "você") + "..."
-                        : "Mensagem como " + (auth[selected]?.userName || "você") + " em " + selectedTarget.channelName + "..."
+                        ? "Responder a " +
+                          replyingTo.authorName +
+                          " como " +
+                          (auth[selected]?.userName || "você") +
+                          "..."
+                        : "Digite uma mensagem ou comando…"
                     }
                     spellCheck={false}
                     onInput={() => {
@@ -4725,19 +4045,22 @@ export default function Home() {
                       );
                     }}
                   />
-                  <span className="counter">{[...text].length}/{maxLength}</span>
+                  <span className="counter">
+                    {[...text].length}/{maxLength}
+                  </span>
                 </div>
                 <button
                   className={`sendButton ${selected}`}
-                  disabled={sending || !text.trim()}
+                  disabled={!canSend || sending || !text.trim()}
                 >
+                  <Icon name="send" />
                   {sending ? "Enviando…" : "Enviar"}
                 </button>
               </div>
-            )}
 
-            {error && <div className="errorBox">{error}</div>}
-          </form>
+              {error && <div className="errorBox">{error}</div>}
+            </form>
+          )}
         </section>
       </section>
 
@@ -4745,6 +4068,9 @@ export default function Home() {
         <div
           className="userProfileOverlay"
           role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setProfileOpen(null);
+          }}
         >
           <section
             ref={profileDialogRef}
@@ -4880,6 +4206,33 @@ export default function Home() {
               </div>
             </div>
 
+            <div className="profileLocalActions">
+              <button
+                type="button"
+                onClick={() => {
+                  const profile = profileOpen;
+                  setSelected(profile.platform);
+                  setReplyingTo(null);
+                  setProfileOpen(null);
+                  requestAnimationFrame(() =>
+                    insertPlainComposerText(`@${profile.authorName} `),
+                  );
+                }}
+              >
+                <Icon name="at" /> Mencionar
+              </button>
+              <button
+                type="button"
+                title="Ocultar mensagens deste usuário somente nesta sessão"
+                onClick={() => {
+                  setMutedProfiles((profiles) => [...profiles, profileOpen]);
+                  setProfileOpen(null);
+                }}
+              >
+                <Icon name="pause" /> Silenciar
+              </button>
+            </div>
+
             <div className="userProfileMessagesHeader">
               <strong>Últimas mensagens</strong>
               <span>
@@ -4939,289 +4292,145 @@ export default function Home() {
       )}
 
       {settingsOpen && (
-        <div
-          className="popupSettingsOverlay"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeSettings();
-          }}
+        <SettingsDialog
+          draft={settingsDraft}
+          onChange={setSettingsDraft}
+          onClose={closeSettings}
+          onSave={saveSettings}
+          onRestore={restoreDefaultSettings}
+          accounts={renderSidebarContent()}
+        />
+      )}
+      {moderationOpen && (
+        <Dialog
+          titleId="moderation-title"
+          onClose={() => setModerationOpen(false)}
         >
-          <section
-            className="popupSettingsDialog chatPreferencesDialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="popup-settings-title"
-          >
-            <div className="popupSettingsHeader preferencesHeader">
-              <div className="settingsHeaderIcon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M4 7h10M18 7h2M4 17h2M10 17h10M4 12h4M12 12h8" />
-                  <circle cx="16" cy="7" r="2" />
-                  <circle cx="8" cy="17" r="2" />
-                  <circle cx="10" cy="12" r="2" />
-                </svg>
+          <div className="popupSettingsHeader">
+            <Icon name="shield" />
+            <strong id="moderation-title">Moderação</strong>
+            <button
+              type="button"
+              onClick={() => setModerationOpen(false)}
+              aria-label="Fechar moderação"
+            >
+              <Icon name="close" />
+            </button>
+          </div>
+          <div className="popupSettingsBody">
+            <p className="moderationHelp">
+              Abra o perfil de um participante para moderar. As ações
+              disponíveis dependem das permissões da sua conta no canal.
+            </p>
+            {platforms.map((p) => (
+              <div className="moderationStatus" key={p}>
+                <span className={`platformIcon ${p}`}>
+                  <PlatformIcon platform={p} />
+                </span>
+                <strong>{labels[p]}</strong>
+                <span>
+                  {!auth[p].connected
+                    ? "Conta desconectada"
+                    : canModerate(p)
+                      ? auth[p].moderationReady
+                        ? "Moderação disponível"
+                        : "Reconexão necessária"
+                      : "Sem permissão de moderação"}
+                </span>
+                {auth[p].connected &&
+                  canModerate(p) &&
+                  !auth[p].moderationReady && (
+                    <a
+                      href={`/api/auth/${p}/start${popupMode ? "?popup=1" : ""}`}
+                    >
+                      Reconectar
+                    </a>
+                  )}
               </div>
-              <div className="settingsHeaderCopy">
-                <strong id="popup-settings-title">Configurações do Chat</strong>
-                <span>Ajuste o comportamento do feed, visualização e alertas</span>
-              </div>
-              <button
-                type="button"
-                onClick={closeSettings}
-                aria-label="Fechar configurações"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="popupSettingsBody preferencesBody">
-              <section className="settingsSection">
-                <div className="settingsSectionTitle">
-                  <span aria-hidden="true">◉</span>
-                  VISUALIZAÇÃO &amp; APARÊNCIA
-                </div>
-
-                <div className="settingsCard">
-                  <div className="settingsCardCopy">
-                    <strong>Modo Compacto</strong>
-                    <span>Reduz espaçamentos e exibe mais mensagens por tela</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`settingsSwitch ${settingsDraft.compactMode ? "active" : ""}`}
-                    role="switch"
-                    aria-checked={settingsDraft.compactMode}
-                    aria-label="Modo compacto"
-                    onClick={() =>
-                      setSettingsDraft((previous) => ({
-                        ...previous,
-                        compactMode: !previous.compactMode,
-                      }))
-                    }
-                  >
-                    <span />
-                  </button>
-                </div>
-
-                <div className="settingsCard">
-                  <div className="settingsCardCopy">
-                    <strong>Exibir Badges de Plataforma</strong>
-                    <span>Ícones e badges da Twitch, Kick e YouTube ao lado do nome</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`settingsSwitch ${settingsDraft.showPlatformBadges ? "active" : ""}`}
-                    role="switch"
-                    aria-checked={settingsDraft.showPlatformBadges}
-                    aria-label="Exibir badges de plataforma"
-                    onClick={() =>
-                      setSettingsDraft((previous) => ({
-                        ...previous,
-                        showPlatformBadges: !previous.showPlatformBadges,
-                      }))
-                    }
-                  >
-                    <span />
-                  </button>
-                </div>
-
-                <div className="settingsCard settingsFontCard">
-                  <div className="settingsCardCopy settingsFontHeading">
-                    <strong>Tamanho da Fonte do Feed</strong>
-                    <span className="settingsFontValue">
-                      {settingsDraft.feedFontSize === "small"
-                        ? "12px (Pequena)"
-                        : settingsDraft.feedFontSize === "large"
-                          ? "16px (Grande)"
-                          : "14px (Média)"}
-                    </span>
-                  </div>
-                  <div className="settingsSegmented" role="group" aria-label="Tamanho da fonte">
-                    {([
-                      ["small", "Pequena"],
-                      ["medium", "Média"],
-                      ["large", "Grande"],
-                    ] as Array<[FeedFontSize, string]>).map(([value, label]) => (
-                      <button
-                        type="button"
-                        key={value}
-                        className={settingsDraft.feedFontSize === value ? "active" : ""}
-                        onClick={() =>
-                          setSettingsDraft((previous) => ({
-                            ...previous,
-                            feedFontSize: value,
-                          }))
-                        }
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="settingsCard">
-                  <div className="settingsCardCopy">
-                    <strong>Timestamps / Horário</strong>
-                    <span>Exibir horário de envio nas mensagens</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`settingsSwitch ${settingsDraft.showTimestamps ? "active" : ""}`}
-                    role="switch"
-                    aria-checked={settingsDraft.showTimestamps}
-                    aria-label="Exibir horário nas mensagens"
-                    onClick={() =>
-                      setSettingsDraft((previous) => ({
-                        ...previous,
-                        showTimestamps: !previous.showTimestamps,
-                      }))
-                    }
-                  >
-                    <span />
-                  </button>
-                </div>
-              </section>
-
-              <section className="settingsSection">
-                <div className="settingsSectionTitle">
-                  <span aria-hidden="true">◆</span>
-                  FILTROS &amp; MODERAÇÃO
-                </div>
-
-                <div className="settingsCard">
-                  <div className="settingsCardCopy">
-                    <strong>Ocultar Mensagens de Bots</strong>
-                    <span>Ocultar alertas automáticos e mensagens identificadas como bots</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`settingsSwitch ${settingsDraft.hideBots ? "active" : ""}`}
-                    role="switch"
-                    aria-checked={settingsDraft.hideBots}
-                    aria-label="Ocultar mensagens de bots"
-                    onClick={() =>
-                      setSettingsDraft((previous) => ({
-                        ...previous,
-                        hideBots: !previous.hideBots,
-                      }))
-                    }
-                  >
-                    <span />
-                  </button>
-                </div>
-
-                <div className="settingsCard">
-                  <div className="settingsCardCopy">
-                    <strong>Bloqueio de Links / Anti-Spam</strong>
-                    <span>Ocultar URLs enviadas por espectadores comuns</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`settingsSwitch ${settingsDraft.blockLinks ? "active" : ""}`}
-                    role="switch"
-                    aria-checked={settingsDraft.blockLinks}
-                    aria-label="Bloquear links de espectadores comuns"
-                    onClick={() =>
-                      setSettingsDraft((previous) => ({
-                        ...previous,
-                        blockLinks: !previous.blockLinks,
-                      }))
-                    }
-                  >
-                    <span />
-                  </button>
-                </div>
-              </section>
-
-              <section className="settingsSection">
-                <div className="settingsSectionTitle">
-                  <span aria-hidden="true">◖</span>
-                  NOTIFICAÇÕES SONORAS
-                </div>
-
-                <div className="settingsCard">
-                  <div className="settingsCardCopy">
-                    <strong>Som em Novas Mensagens</strong>
-                    <span>Tocar bipe sutil a cada nova mensagem recebida</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`settingsSwitch ${settingsDraft.newMessageSound ? "active" : ""}`}
-                    role="switch"
-                    aria-checked={settingsDraft.newMessageSound}
-                    aria-label="Som em novas mensagens"
-                    onClick={() =>
-                      setSettingsDraft((previous) => ({
-                        ...previous,
-                        newMessageSound: !previous.newMessageSound,
-                      }))
-                    }
-                  >
-                    <span />
-                  </button>
-                </div>
-
-                <div className="settingsCard">
-                  <div className="settingsCardCopy">
-                    <strong>Alerta Sonoro em Menções (@você)</strong>
-                    <span>Notificar com som de destaque quando sua conta for citada</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`settingsSwitch ${settingsDraft.mentionSound ? "active" : ""}`}
-                    role="switch"
-                    aria-checked={settingsDraft.mentionSound}
-                    aria-label="Alerta sonoro em menções"
-                    onClick={() =>
-                      setSettingsDraft((previous) => ({
-                        ...previous,
-                        mentionSound: !previous.mentionSound,
-                      }))
-                    }
-                  >
-                    <span />
-                  </button>
-                </div>
-              </section>
-            </div>
-
-            <div className="settingsFooter">
-              <button
-                type="button"
-                className="restoreSettingsButton"
-                onClick={restoreDefaultSettings}
-              >
-                Restaurar Padrões
-              </button>
-              <div>
-                <button
-                  type="button"
-                  className="cancelSettingsButton"
-                  onClick={closeSettings}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  className="saveSettingsButton"
-                  onClick={saveSettings}
-                >
-                  <span aria-hidden="true">✓</span>
-                  Salvar Alterações
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
+            ))}
+            <button
+              type="button"
+              className="cancelSettingsButton"
+              onClick={() => {
+                setModerationOpen(false);
+                openSettings();
+              }}
+            >
+              Configurar filtros e bloqueio de links
+            </button>
+          </div>
+        </Dialog>
       )}
 
-      {!popupMode && <footer className="siteFooter">
-        <span>aCHATado</span>
-        <nav aria-label="Links legais">
-          <a href="/privacy">Política de Privacidade</a>
-          <a href="/terms">Termos de Serviço</a>
-        </nav>
-      </footer>}
+      {!popupMode && (
+        <footer className="siteFooter">
+          <span>© {new Date().getFullYear()} aCHATado</span>
+          <nav aria-label="Links legais">
+            <button
+              type="button"
+              className="footerLink"
+              onClick={() => {
+                setOverlayCopied(false);
+                setOverlayLink(overlayUrl(window.location.origin, channels));
+              }}
+            >
+              OBS Overlay URL
+            </button>
+            <a href="/privacy">Política de Privacidade</a>
+            <a href="/terms">Termos de Serviço</a>
+          </nav>
+        </footer>
+      )}
+      {overlayLink && (
+        <Dialog
+          titleId="overlay-title"
+          onClose={() => setOverlayLink("")}
+          className="overlayUrlDialog"
+        >
+          <h2 id="overlay-title">Overlay do chat</h2>
+          <button
+            type="button"
+            className="overlayUrlClose"
+            onClick={() => setOverlayLink("")}
+            aria-label="Fechar overlay"
+          >
+            <Icon name="close" />
+          </button>
+          <p>
+            Adicione esta URL como fonte de navegador no OBS. Ela exibe o feed
+            dos canais selecionados sobre fundo transparente, sem controles de
+            envio.
+          </p>
+          <input
+            aria-label="URL do overlay"
+            readOnly
+            value={overlayLink}
+            onFocus={(event) => event.target.select()}
+          />
+          {!activeChannelCount && (
+            <p>Selecione pelo menos um canal antes de copiar a URL.</p>
+          )}
+          <div className="overlayUrlActions">
+            <button
+              type="button"
+              disabled={!activeChannelCount}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(overlayLink);
+                  setOverlayCopied(true);
+                } catch {
+                  setOverlayCopied(false);
+                }
+              }}
+            >
+              {overlayCopied ? "Copiado" : "Copiar URL"}
+            </button>
+            <a href={overlayLink} target="_blank" rel="noopener noreferrer">
+              Pré-visualizar
+            </a>
+          </div>
+        </Dialog>
+      )}
     </main>
   );
 }

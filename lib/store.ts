@@ -180,12 +180,7 @@ function activeFilters(filters?: ChannelFilters) {
 export async function listMessages(afterId = 0, limit = 100, filters?: ChannelFilters) {
   const filterEntries = activeFilters(filters);
   if (!dbConfigured) {
-    return demoMessages.filter((m) => {
-      if ((m.id || 0) <= afterId) return false;
-      if (!filterEntries.length) return true;
-      return filterEntries.some(([platform, channelId]) =>
-        m.platform === platform && (m.channel_id === channelId || m.channel_id === "demo"));
-    });
+    return [];
   }
 
   const safeLimit = Math.min(Math.max(limit, 1), 200);
@@ -266,24 +261,3 @@ export async function setState(stateKey: string, value: unknown) {
   });
   if (!res.ok) throw new Error(`Falha ao salvar estado: ${await res.text()}`);
 }
-
-const demoMessages: ChatMessage[] = [
-  {
-    id: 1, platform: "twitch", platform_message_id: "demo-twitch-1", channel_id: "demo",
-    author_id: "1", author_name: "pixelrunner", author_avatar: null, author_color: "#a970ff",
-    message: "Esse chat junta mesmo as três plataformas?", message_type: "text", badges: [],
-    created_at: new Date(Date.now() - 72000).toISOString(),
-  },
-  {
-    id: 2, platform: "kick", platform_message_id: "demo-kick-1", channel_id: "demo",
-    author_id: "2", author_name: "bruno_live", author_avatar: null, author_color: "#53fc18",
-    message: "Sim! E eu posso responder usando minha conta da Kick.", message_type: "text", badges: [],
-    created_at: new Date(Date.now() - 45000).toISOString(),
-  },
-  {
-    id: 3, platform: "youtube", platform_message_id: "demo-youtube-1", channel_id: "demo",
-    author_id: "3", author_name: "Ana Clips", author_avatar: null, author_color: "#ff453a",
-    message: "Cheguei pelo YouTube 👋", message_type: "text", badges: [],
-    created_at: new Date(Date.now() - 18000).toISOString(),
-  },
-];

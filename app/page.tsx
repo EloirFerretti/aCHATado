@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -44,21 +45,21 @@ export default function HomePage() {
             gap: 20,
           }}
         >
-          <a
+          <Link
             href="/"
             style={{ color: "#f6f7fb", textDecoration: "none", fontSize: 25, fontWeight: 800 }}
             aria-label="Página inicial do aCHATado"
           >
             aCHATado
-          </a>
+          </Link>
           <nav style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
-            <a href="/privacy" style={{ color: "#9299a8", textDecoration: "none" }}>
+            <Link href="/privacy" style={{ color: "#9299a8", textDecoration: "none" }}>
               Política de Privacidade
-            </a>
-            <a href="/terms" style={{ color: "#9299a8", textDecoration: "none" }}>
+            </Link>
+            <Link href="/terms" style={{ color: "#9299a8", textDecoration: "none" }}>
               Termos de Serviço
-            </a>
-            <a
+            </Link>
+            <Link
               href="/chat"
               style={{
                 color: "#f6f7fb",
@@ -71,7 +72,7 @@ export default function HomePage() {
               }}
             >
               Abrir o aCHATado
-            </a>
+            </Link>
           </nav>
         </div>
       </header>
@@ -122,7 +123,7 @@ export default function HomePage() {
             APIs oficiais das plataformas.
           </p>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 32 }}>
-            <a
+            <Link
               href="/chat"
               style={{
                 display: "inline-block",
@@ -136,8 +137,8 @@ export default function HomePage() {
               }}
             >
               Acessar o chat unificado
-            </a>
-            <a
+            </Link>
+            <Link
               href="/privacy"
               style={{
                 display: "inline-block",
@@ -151,7 +152,7 @@ export default function HomePage() {
               }}
             >
               Como seus dados são usados
-            </a>
+            </Link>
           </div>
         </div>
       </section>
@@ -201,8 +202,8 @@ export default function HomePage() {
             plataforma correspondente.
           </p>
           <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-            <a href="/privacy" style={{ color: "#a970ff" }}>Política de Privacidade</a>
-            <a href="/terms" style={{ color: "#a970ff" }}>Termos de Serviço</a>
+            <Link href="/privacy" style={{ color: "#a970ff" }}>Política de Privacidade</Link>
+            <Link href="/terms" style={{ color: "#a970ff" }}>Termos de Serviço</Link>
             <a href="mailto:eloir.ferretti@gmail.com" style={{ color: "#a970ff" }}>
               Contato
             </a>
