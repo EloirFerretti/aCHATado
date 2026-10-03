@@ -3478,7 +3478,7 @@ export default function Home() {
     keyPrefix: string,
   ) {
     const parts: any[] = [];
-    const pattern = /@([a-zA-Z0-9_][a-zA-Z0-9_.-]{1,38})/g;
+    const pattern = /@([a-zA-Z0-9_][a-zA-Z0-9_.-]{0,38})/g;
     let cursor = 0;
     let match: RegExpExecArray | null;
 
